@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+unidecode
+fpdf2
+joblib
+supabase
+scikit-learn
