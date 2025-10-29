@@ -10,6 +10,7 @@ import requests
 import io 
 import json
 import re
+import gdown 
 
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO (Punto 1 y 2)
@@ -44,12 +45,7 @@ SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
 def load_model_components():
     """Descarga el modelo grande y carga los activos de ML."""
     
-    # --- Carga de Activos ML ---
-@st.cache_resource
-def load_model_components():
-    """Descarga el modelo grande y carga los activos de ML."""
-    
-    # 1. Cargar el archivo de columnas (¡CRÍTICO! DEBE SER UN ARCHIVO VÁLIDO DE 1KB+)
+    # 1. Cargar el archivo de columnas 
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
     except Exception as e:
@@ -452,6 +448,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
