@@ -36,8 +36,8 @@ COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
 
 # --- CONFIGURACIÓN DE SUPABASE (Punto 4) ---
 # Las credenciales se leen automáticamente del archivo .streamlit/secrets.toml
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "URL_PENDIENTE")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "KEY_PENDIENTE")
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
 
 # --- Carga de Activos ML ---
@@ -448,6 +448,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
