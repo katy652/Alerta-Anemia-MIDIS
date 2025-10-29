@@ -29,7 +29,7 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- URL DEL MODELO GRANDE (CRÍTICO - PUNTO 1) ---
+# --- URL DEL MODELO GRANDE (CRÍTICO) ---
 # ⚠️ DEBE REEMPLAZAR ESTA LÍNEA con su enlace de DESCARGA DIRECTA (Drive, Dropbox, etc.)
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
@@ -448,6 +448,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
