@@ -44,25 +44,32 @@ SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
 def load_model_components():
     """Descarga el modelo grande y carga los activos de ML."""
     
-    # 1. Cargar el archivo de columnas (Debe estar en GitHub)
+    # --- Carga de Activos ML ---
+@st.cache_resource
+def load_model_components():
+    """Descarga el modelo grande y carga los activos de ML."""
+    
+    # 1. Cargar el archivo de columnas (¡CRÍTICO! DEBE SER UN ARCHIVO VÁLIDO DE 1KB+)
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
-    except FileNotFoundError:
-        st.error(f"❌ ERROR: No se encontró el archivo de columnas {COLUMNS_FILENAME}. ¡Debe subirlo a GitHub!")
+    except Exception as e:
+        # Modificado para capturar errores de archivo vacío/corrupto
+        st.error(f"❌ ERROR: El archivo de columnas '{COLUMNS_FILENAME}' está vacío o corrupto. Por favor, vuelva a generar el archivo y subirlo a GitHub. Error: {e}")
         return None, None
         
-    # 2. Descargar y cargar el modelo grande (Desde la URL)
+    # 2. Descargar y cargar el modelo grande (USANDO gdown)
     try:
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        response = requests.get(MODELO_URL, stream=True, timeout=30)
-        response.raise_for_status() 
-        model_data = io.BytesIO(response.content)
-        model = joblib.load(model_data)
+        
+        # Lógica de gdown para evitar el bloqueo de archivos grandes de Drive
+        gdown.download(url=MODELO_URL, output="modelo_anemia.joblib", quiet=True, fuzzy=True)
+
+        model = joblib.load("modelo_anemia.joblib")
         st.success("✅ Modelo cargado exitosamente.")
         return model, model_columns
     except Exception as e:
-        st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande: {e}")
-        st.info("Verifica que la 'MODELO_URL' sea el enlace de descarga directa y que el archivo esté compartido públicamente.")
+        st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande: {e}. El formulario está deshabilitado.")
+        st.info("Verifica que la 'MODELO_URL' sea correcta y que el archivo esté compartido públicamente.")
         return None, None
 
 MODELO_ML, MODELO_COLUMNS = load_model_components()
@@ -445,5 +452,6 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
