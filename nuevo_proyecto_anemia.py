@@ -30,7 +30,7 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- URL DEL MODELO GRANDE (CRÍTICO - PUNTO 1) ---
 # ⚠️ DEBE REEMPLAZAR ESTA LÍNEA con su enlace de DESCARGA DIRECTA (Drive, Dropbox, etc.)
-MODELO_URL = "https://drive.google.com/uc?export=download&id=SU_ID_DE_ARCHIVO_AQUÍ" 
+MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
 
 # --- CONFIGURACIÓN DE SUPABASE (Punto 4) ---
@@ -445,3 +445,4 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
