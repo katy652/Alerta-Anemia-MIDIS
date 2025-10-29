@@ -446,3 +446,4 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
 
+
