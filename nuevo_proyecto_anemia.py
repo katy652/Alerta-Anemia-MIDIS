@@ -10,7 +10,7 @@ import requests
 import io 
 import json
 import re
-import gdown 
+import gdown  
 
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO (Punto 1 y 2)
@@ -30,14 +30,12 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- URL DEL MODELO GRANDE (CRÍTICO) ---
-# ⚠️ DEBE REEMPLAZAR ESTA LÍNEA con su enlace de DESCARGA DIRECTA (Drive, Dropbox, etc.)
+# El ID ha sido verificado para que funcione con gdown
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
 
 # --- CONFIGURACIÓN DE SUPABASE (Punto 4) ---
-# Las credenciales se leen automáticamente del archivo .streamlit/secrets.toml
-SUPABASE_URL = st.secrets.SUPABASE_URL
-SUPABASE_KEY = st.secrets.SUPABASE_KEY
+# Las credenciales ahora se leen dentro de la función de cliente para mayor robustez
 SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
 
 # --- Carga de Activos ML ---
@@ -72,29 +70,35 @@ MODELO_ML, MODELO_COLUMNS = load_model_components()
 
 RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 
+# ✅ CORRECCIÓN DE ARQUITECTURA: Mover la lectura de secrets aquí dentro
 @st.cache_resource
 def get_supabase_client():
     """Inicializa y retorna el cliente de Supabase."""
-    if SUPABASE_URL == "URL_PENDIENTE" or SUPABASE_KEY == "KEY_PENDIENTE":
-        # No mostrar error si es por el placeholder, solo si la conexión falla después.
-        return None
     try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Usamos .get() en el objeto st.secrets para un manejo seguro del Key Error
+        url = st.secrets.get("SUPABASE_URL")
+        key = st.secrets.get("SUPABASE_KEY")
+        
+        # Si las claves no están en el TOML, el cliente debe ser None
+        if not url or not key:
+            # Aquí es donde se atrapa si las claves no están configuradas en Streamlit Cloud.
+            return None
+        
+        supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
+        # Aquí se atrapan errores de conexión, firewall o RLS.
         return None
 
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
-# (El resto de las funciones de preprocesamiento, clasificación clínica, predicción, 
-# generación de sugerencias, y gestión de Supabase se mantienen del código anterior.)
 
-def limpiar_texto(texto): # ...
+def limpiar_texto(texto): 
     if pd.isna(texto): return 'desconocido'
     return unidecode.unidecode(str(texto).strip().lower())
 
-def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses): # ...
+def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses): 
     umbral = 0
     if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0
     elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5
@@ -104,7 +108,7 @@ def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses): # ...
     elif hemoglobina_g_dL < umbral: return "LEVE", umbral
     else: return "NO ANEMIA", umbral
 
-def preprocess_data_for_ml(data_raw, model_columns): # ...
+def preprocess_data_for_ml(data_raw, model_columns): 
     data_ml = {'Hemoglobina_g_dL': data_raw['Hemoglobina_g_dL'], 'Edad_meses': data_raw['Edad_meses'], 'Altitud_m': data_raw['Altitud_m'], 'Ingreso_Familiar_Soles': data_raw['Ingreso_Familiar_Soles'], 'Nro_Hijos': data_raw['Nro_Hijos']}
     df_pred = pd.DataFrame([data_ml])
     categorical_cols = ['Sexo', 'Region', 'Area', 'Clima', 'Nivel_Educacion_Madre', 'Programa_QaliWarma', 'Programa_Juntos', 'Programa_VasoLeche', 'Suplemento_Hierro']
@@ -117,7 +121,7 @@ def preprocess_data_for_ml(data_raw, model_columns): # ...
     df_final = df_final.astype({col: 'float64' for col in df_final.columns})
     return df_final 
 
-def predict_risk_ml(data_raw): # ...
+def predict_risk_ml(data_raw): 
     if MODELO_ML is None or MODELO_COLUMNS is None: return 0.5, "ERROR: Modelo IA no disponible"
     try:
         X_df = preprocess_data_for_ml(data_raw, MODELO_COLUMNS)
@@ -129,7 +133,7 @@ def predict_risk_ml(data_raw): # ...
     except Exception as e:
         return 0.5, "ERROR: Fallo en el motor de IA"
 
-def generar_sugerencias(data, resultado_final, gravedad_anemia): # ... (Lógica mantenida)
+def generar_sugerencias(data, resultado_final, gravedad_anemia): 
     sugerencias_raw = []
     if gravedad_anemia == 'SEVERA':
         sugerencias_raw.append("🚨🚨 EMERGENCIA SEVERA | Traslado inmediato a Hospital/Centro de Salud de mayor complejidad y posible transfusión.")
@@ -162,10 +166,6 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia): # ... (Lógica 
 # 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE)
 # ==============================================================================
 
-# (Las funciones de registrar_alerta_db, safe_json_to_text_display, fetch_data, 
-# obtener_alertas_pendientes_o_seguimiento, obtener_todos_los_registros, y 
-# actualizar_estado_alerta se mantienen del código anterior.)
-
 def registrar_alerta_db(data_alerta):
     supabase = get_supabase_client()
     if not supabase: 
@@ -186,7 +186,7 @@ def registrar_alerta_db(data_alerta):
         st.error(f"❌ Error al registrar en Supabase: {e}")
         return False
 
-def safe_json_to_text_display(json_str): # ...
+def safe_json_to_text_display(json_str): 
     if isinstance(json_str, str) and json_str.strip() and json_str.startswith('['):
         try:
             sug_list = json.loads(json_str)
@@ -199,9 +199,10 @@ def safe_json_to_text_display(json_str): # ...
             return "**ERROR: Datos de sugerencia corruptos.**"
     return "No hay sugerencias registradas."
 
-def fetch_data(query_condition=None): # ...
+def fetch_data(query_condition=None): 
     supabase = get_supabase_client()
-    if not supabase: return pd.DataFrame()
+    # Si el cliente es None, retorna DataFrame vacío (Esto evita el error de conexión)
+    if not supabase: return pd.DataFrame() 
     try:
         query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
         if query_condition: query = query.or_(query_condition)
@@ -212,22 +213,23 @@ def fetch_data(query_condition=None): # ...
             return df
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"❌ Error al consultar datos en Supabase: {e}")
+        # st.error(f"❌ Error al consultar datos en Supabase: {e}") 
+        # Mantener el error en el try/except de vista_monitoreo, aquí solo retorna vacío.
         return pd.DataFrame()
 
 @st.cache_data
-def obtener_alertas_pendientes_o_seguimiento(): # ...
+def obtener_alertas_pendientes_o_seguimiento(): 
     query_condition = "estado.ilike.PENDIENTE%,estado.eq.EN SEGUIMIENTO"
     df = fetch_data(query_condition=query_condition)
     if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
     return df
 
 @st.cache_data
-def obtener_todos_los_registros(): # ...
+def obtener_todos_los_registros(): 
     df = fetch_data()
     return df
 
-def actualizar_estado_alerta(alerta_id, nuevo_estado): # ...
+def actualizar_estado_alerta(alerta_id, nuevo_estado): 
     supabase = get_supabase_client()
     if not supabase: return False
     try:
@@ -242,9 +244,8 @@ def actualizar_estado_alerta(alerta_id, nuevo_estado): # ...
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
-# (La clase PDF y la función generar_informe_pdf_fpdf se mantienen del código anterior.)
 
-class PDF(FPDF): # ... (Clase FPDF omitida por brevedad)
+class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
         self.cell(0, 10, unidecode.unidecode('INFORME PERSONALIZADO DE RIESGO DE ANEMIA'), 0, 1, 'C')
@@ -262,7 +263,7 @@ class PDF(FPDF): # ... (Clase FPDF omitida por brevedad)
         self.set_text_color(0, 0, 0) 
         self.ln(2)
 
-def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gravedad_anemia): # ... (Función PDF omitida por brevedad)
+def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gravedad_anemia): 
     pdf = PDF(orientation='P', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.alias_nb_pages()
@@ -308,7 +309,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # 5. VISTAS DE LA APLICACIÓN (STREAMLIT UI)
 # ==============================================================================
 
-def vista_prediccion(): # ... (Contenido de la vista de predicción)
+def vista_prediccion(): 
     st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.1 Híbrida)")
     st.markdown("---")
     
@@ -384,12 +385,14 @@ def vista_prediccion(): # ... (Contenido de la vista de predicción)
         except Exception as pdf_error: st.error(f"⚠️ Error al generar el PDF. Detalle: {pdf_error}")
         st.markdown("---")
 
-def vista_monitoreo(): # ... (Contenido de la vista de monitoreo)
+def vista_monitoreo(): 
     st.title("📊 Monitoreo y Gestión de Alertas (Supabase)")
     st.markdown("---")
     st.header("1. Casos de Monitoreo Activo (Pendientes y En Seguimiento)")
-    if get_supabase_client() is None:
-        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus 'secrets.toml'.")
+    
+    supabase_client = get_supabase_client()
+    if supabase_client is None:
+        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus credenciales y permisos (RLS).")
         return
 
     df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
@@ -448,7 +451,6 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
-
 
 
 
