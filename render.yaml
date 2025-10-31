@@ -3,5 +3,4 @@ services:
     name: streamlit-anemia
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run nuevo_proyecto_anemia.py
-    port: 8501
+    startCommand: streamlit run nuevo_proyecto_anemia.py --server.port=$PORT --server.address=0.0.0.0
