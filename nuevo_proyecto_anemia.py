@@ -30,17 +30,29 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE ---
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", None)
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", None)
-SUPABASE_TABLE = st.secrets.get("SUPABASE_TABLE", "alertas")
+# ===================================================================
+#  CONFIGURACIÓN DE SUPABASE (versión segura)
+# ===================================================================
+from supabase import create_client, Client
+import streamlit as st
 
-if SUPABASE_URL and SUPABASE_KEY:
+# --- Claves seguras ---
+# ⚙️ En modo local: crea el archivo `.streamlit/secrets.toml`
+# ⚙️ En Render o Streamlit Cloud: define variables de entorno (Environment Variables)
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+SUPABASE_TABLE = "alertas"
+
+# --- Inicializar cliente ---
+try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-else:
-    st.error("❌ No se pudo cargar la configuración de Supabase. Verifica tus secrets en Streamlit Cloud.")
+    st.success("✅ Conexión exitosa con Supabase.")
+except Exception as e:
+    st.error(f"❌ Error al conectar con Supabase: {e}")
 
-# --- Carga de Activos ML ---
+# ===================================================================
+#  CARGA DE ACTIVOS DE MACHINE LEARNING
+# ===================================================================
 @st.cache_resource
 def load_model_components():
     """Descarga el modelo grande y carga los activos de ML (manejo de errores robusto)."""
@@ -50,33 +62,38 @@ def load_model_components():
     MODEL_FILENAME = "modelo_anemia.joblib"
     COLUMNS_FILENAME = "modelo_columns.joblib"
 
-    # 1. Cargar columnas (desde archivo local o GitHub)
+    # 1️⃣ Cargar columnas
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
         st.success("✅ Activos de columna cargados exitosamente.")
     except FileNotFoundError:
-        st.error(f"❌ ERROR: No se encontró el archivo de columnas '{COLUMNS_FILENAME}'. ¡Debe subirlo a GitHub o a la carpeta del proyecto!")
+        st.error(f"❌ No se encontró '{COLUMNS_FILENAME}'. Súbelo a tu proyecto o GitHub.")
         return None, None
 
-    # 2. Descargar modelo desde Google Drive si no existe
+    # 2️⃣ Descargar modelo si no existe
     if not os.path.exists(MODEL_FILENAME):
         try:
-            with st.spinner("Descargando modelo de Machine Learning desde la nube..."):
+            with st.spinner("Descargando modelo desde Google Drive..."):
                 response = requests.get(MODEL_URL, allow_redirects=True, timeout=120)
                 if response.status_code == 200:
                     with open(MODEL_FILENAME, "wb") as f:
                         f.write(response.content)
-                    st.success("✅ Modelo descargado y guardado correctamente.")
+                    st.success("✅ Modelo descargado correctamente.")
                 else:
-                    st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo. Código HTTP: {response.status_code}")
-                    st.warning("Verifica que el enlace de Drive sea de descarga directa y esté compartido públicamente.")
-                    st.info(f"URL usada: {MODEL_URL}")
+                    st.error(f"❌ Error HTTP {response.status_code} al descargar el modelo.")
                     return None, None
         except Exception as e:
-            st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo: {str(e)}")
-            st.warning("El modelo no se pudo cargar. Revisa tu conexión o el enlace de Drive.")
+            st.error(f"❌ Error al descargar modelo: {str(e)}")
             return None, None
 
+    # 3️⃣ Cargar modelo
+    try:
+        model = joblib.load(MODEL_FILENAME)
+        st.success("✅ Modelo cargado correctamente.")
+        return model, model_columns
+    except Exception as e:
+        st.error(f"❌ Error al cargar el modelo: {str(e)}")
+        return None, None
     # 3. Cargar modelo desde archivo local
     try:
         modelo = joblib.load(MODEL_FILENAME)
@@ -514,6 +531,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
