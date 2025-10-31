@@ -30,9 +30,15 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-SUPABASE_URL = "https://kwsuzskblbejvliniggd.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3c3VzemtiZ2JqdmxpbmlnZ2QiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNzYxNjgxNDU1LCJleHAiOjIwNzcyNTc0NTV9.cdiXYbvEZTAfAXI09f9v_a7ARBuU4hUkkBS9-IFQTYI"
-SUPABASE_TABLE = "alertas"
+# --- CONFIGURACIÓN DE SUPABASE ---
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", None)
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", None)
+SUPABASE_TABLE = st.secrets.get("SUPABASE_TABLE", "alertas")
+
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    st.error("❌ No se pudo cargar la configuración de Supabase. Verifica tus secrets en Streamlit Cloud.")
 
 # --- Carga de Activos ML ---
 @st.cache_resource
@@ -508,6 +514,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
