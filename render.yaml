@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: streamlit-anemia
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run nuevo_proyecto_anemia.py
-    port: 8501
