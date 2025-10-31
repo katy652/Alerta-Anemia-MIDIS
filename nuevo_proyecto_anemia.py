@@ -26,12 +26,12 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- URL DEL MODELO GRANDE (CRÍTICO - PUNTO 1) ---
+# --- URL DEL MODELO GRANDE (¡PUNTO CRÍTICO DE ERROR!) ---
 # 🚨 ¡IMPORTANTE! REEMPLAZA ESTA LÍNEA con tu enlace de DESCARGA DIRECTA REAL
 MODELO_URL = "TU_ENLACE_DE_DESCARGA_DIRECTA_DEL_MODELO_AQUI" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE (CORRECCIÓN FINAL) ---
+# --- CONFIGURACIÓN DE SUPABASE (CORRECCIÓN FINAL DE ACCESO) ---
 SUPABASE_URL = st.secrets["supabase"]["url"] # Lee desde .streamlit/secrets.toml
 SUPABASE_KEY = st.secrets["supabase"]["key"] # Lee desde .streamlit/secrets.toml
 SUPABASE_TABLE = "alertas" 
@@ -49,8 +49,8 @@ def load_model_components():
         
     try:
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        # Esto fallará si MODELO_URL no es una URL de descarga directa funcional.
-        response = requests.get(MODELO_URL, stream=True, timeout=30)
+        # Esto fallará si MODELO_URL es el placeholder que causó el error en la imagen
+        response = requests.get(MODELO_URL, stream=True, timeout=30) 
         response.raise_for_status() 
         model_data = io.BytesIO(response.content)
         model = joblib.load(model_data)
@@ -81,8 +81,7 @@ def get_supabase_client():
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
-# (Todas las funciones de preprocesamiento, clasificación, predicción, 
-# y gestión de sugerencias se mantienen sin cambios.)
+# (El código de las funciones se mantiene sin cambios, es la lógica de tu app)
 
 def limpiar_texto(texto): 
     if pd.isna(texto): return 'desconocido'
