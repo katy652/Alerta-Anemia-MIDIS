@@ -8,7 +8,7 @@ from fpdf import FPDF
 import base64
 import json
 import gdown 
-import os # 👈 NECESARIO: Importar 'os' para leer variables de entorno
+import os 
 import io
 import re
 import requests
@@ -177,10 +177,27 @@ def registrar_alerta_db(data_alerta):
         if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
         elif data_alerta['riesgo'].startswith("ALTO RIESGO"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
         else: estado = 'REGISTRADO'
-        data = {'dni': data_alerta['DNI'], 'nombre_apellido': data_alerta['Nombre_Apellido'], 'edad_meses': data_alerta['Edad_meses'], 'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 'riesgo': data_alerta['riesgo'], 'fecha_alerta': datetime.date.today().isoformat(), 'estado': estado, 'sugerencias': json.dumps(data_alerta['sugerencias'])}
-        # La corrección de RLS que hicimos en Supabase permite esta inserción
-        supabase.table(SUPABASE_TABLE).insert(data).execute()
         
+        data = {
+            'dni': data_alerta['DNI'], 
+            'nombre_apellido': data_alerta['Nombre_Apellido'], 
+            'edad_meses': data_alerta['Edad_meses'], 
+            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 
+            'riesgo': data_alerta['riesgo'], 
+            'fecha_alerta': datetime.date.today().isoformat(), 
+            'estado': estado, 
+            'sugerencias': json.dumps(data_alerta['sugerencias'])
+        }
+        
+        # 🚨 CORRECCIÓN CLAVE: Capturar la respuesta y verificar errores de la API
+        response = supabase.table(SUPABASE_TABLE).insert(data).execute()
+        
+        if response.error:
+             # Si hay un error de RLS, tipo de dato, etc., se mostrará aquí
+             st.error(f"❌ Error de API Supabase al insertar. Posible problema de RLS o formato de datos: {response.error.message}")
+             return False
+
+        # Si llega aquí, la inserción fue exitosa:
         # Limpia la caché de datos para que las vistas se actualicen inmediatamente
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
@@ -188,8 +205,10 @@ def registrar_alerta_db(data_alerta):
         if estado.startswith('PENDIENTE'): st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
         else: st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
         return True
+    
     except Exception as e:
-        st.error(f"❌ Error al registrar en Supabase. Posible problema de RLS (Row Level Security) o el formato de datos: {e}")
+        # Este catch atrapará errores de conexión o errores Python puros
+        st.error(f"❌ Error al registrar en Supabase. Detalles: {e}")
         return False
 
 def safe_json_to_text_display(json_str): 
@@ -214,13 +233,14 @@ def fetch_data(query_condition=None):
         return pd.DataFrame() 
         
     try:
-        # La corrección de RLS que hicimos en Supabase permite esta lectura (SELECT)
         query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
         if query_condition: query = query.or_(query_condition)
+        
+        # 🚨 CORRECCIÓN CLAVE: Capturar la respuesta y verificar errores de la API para lectura
         response = query.execute()
         
         if response.error:
-            st.error(f"❌ Error al obtener datos de la tabla: {response.error.message}")
+            st.error(f"❌ Error al obtener datos de la tabla (SELECT): {response.error.message}")
             return pd.DataFrame()
 
         if response.data:
@@ -250,7 +270,13 @@ def actualizar_estado_alerta(alerta_id, nuevo_estado):
     supabase = SUPABASE_CLIENT
     if not supabase: return False
     try:
-        supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
+        # También aplicamos .execute() y comprobamos la respuesta por seguridad
+        response = supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
+        
+        if response.error:
+             st.error(f"Error de API Supabase al actualizar: {response.error.message}")
+             return False
+        
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
         return True
