@@ -55,7 +55,6 @@ def init_supabase_client() -> Client:
         supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
-        # Captura errores de conexión, DNS, o RLS
         # st.error(f"Error de conexión inicial a Supabase: {e}") 
         return None
 
@@ -182,8 +181,8 @@ def registrar_alerta_db(data_alerta):
             'dni': data_alerta['DNI'], 
             'nombre_apellido': data_alerta['Nombre_Apellido'], 
             'edad_meses': data_alerta['Edad_meses'], 
-            # 🟢 CORRECCIÓN APLICADA: 'hemoglobina_g_dL' cambiado a 'hemoglobina_g_dl' (minúsculas)
-            'hemoglobina_g_dl': data_alerta['Hemoglobina_g_dL'], 
+            # ✅ CORRECCIÓN FINAL: Se usa 'hemoglobina_g_dL' para coincidir con la DB
+            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 
             'riesgo': data_alerta['riesgo'], 
             'fecha_alerta': datetime.date.today().isoformat(), 
             'estado': estado, 
@@ -206,7 +205,7 @@ def registrar_alerta_db(data_alerta):
         if estado.startswith('PENDIENTE'): st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
         else: st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
         return True
-    
+        
     except Exception as e:
         # Este catch atrapará errores de conexión o errores Python puros
         st.error(f"❌ Error al registrar en Supabase. Detalles: {e}")
@@ -246,8 +245,8 @@ def fetch_data(query_condition=None):
 
         if response.data:
             df = pd.DataFrame(response.data)
-            # Nota: Aquí también se corrigió el rename, pero la lectura a menudo es más flexible.
-            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dl': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+            # Nota: Los nombres de columna deben coincidir con la base de datos
+            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
             return df
         return pd.DataFrame()
     except Exception as e:
