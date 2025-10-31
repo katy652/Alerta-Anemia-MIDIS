@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import unidecode
-from supabase import create_client, Client # Corregida la librería a 'supabase' en requirements.txt
+from supabase import create_client, Client 
 import datetime
 from fpdf import FPDF 
 import base64
@@ -26,16 +26,15 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- URL DEL MODELO GRANDE (CORREGIDO CON TU ENLACE DE DESCARGA DIRECTA) ---
-# Este enlace fue generado a partir del ID de tu archivo de Google Drive.
-# ¡Asegúrate de que el archivo esté compartido públicamente!
+# --- URL DEL MODELO GRANDE (SE USA LA URL DE DESCARGA DIRECTA DE GOOGLE DRIVE) ---
+# Si esta URL falla (ERROR CRÍTICO), la solución es cambiar el hosting (Dropbox/GitHub Releases)
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE (Lee desde .streamlit/secrets.toml o interfaz de Secrets) ---
-# El error Key Error (imagen 8e800f.png) se soluciona configurando esto en la interfaz de Streamlit Cloud
-SUPABASE_URL = st.secrets["supabase"]["url"]
-SUPABASE_KEY = st.secrets["supabase"]["key"]
+# --- CONFIGURACIÓN DE SUPABASE (Lectura PLANA para evitar KeyErrors) ---
+# Se inicializa con None para que la app se ejecute, y la lectura real se hace en get_supabase_client()
+SUPABASE_URL = None
+SUPABASE_KEY = None
 SUPABASE_TABLE = "alertas" 
 
 # --- Carga de Activos ML ---
@@ -52,7 +51,7 @@ def load_model_components():
         
     try:
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        # Esto usará la URL de descarga directa corregida
+        # Esto intenta descargar el archivo. Si falla, el ERROR CRÍTICO será visible.
         response = requests.get(MODELO_URL, stream=True, timeout=30) 
         response.raise_for_status() 
         model_data = io.BytesIO(response.content)
@@ -60,8 +59,9 @@ def load_model_components():
         st.success("✅ Modelo cargado exitosamente.")
         return model, model_columns
     except Exception as e:
+        # Aquí se captura el error de URL inválida o falla de descarga
         st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande: {e}")
-        st.info("Verifica que el enlace de Drive sea de descarga directa y que el archivo esté compartido públicamente. URL Usada: {MODELO_URL}")
+        st.info(f"Verifica que el enlace de Drive sea de descarga directa y que el archivo esté compartido públicamente. URL Usada: {MODELO_URL}")
         return None, None
 
 MODELO_ML, MODELO_COLUMNS = load_model_components()
@@ -70,12 +70,18 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 
 @st.cache_resource
 def get_supabase_client():
-    """Inicializa y retorna el cliente de Supabase."""
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("❌ ERROR: Claves de Supabase no cargadas. Revise la sección 'Secrets' en Streamlit Cloud.")
-        return None
+    """Inicializa y retorna el cliente de Supabase (Lectura segura de secretos PLANA)."""
+    # Intentamos leer las variables planas (SUPABASE_URL, SUPABASE_KEY) para evitar el Key Error
     try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        url = st.secrets["SUPABASE_URL"] # Ahora busca el secreto plano
+        key = st.secrets["SUPABASE_KEY"] # Ahora busca el secreto plano
+    except KeyError:
+        st.error("❌ ERROR: Claves de Supabase (SUPABASE_URL/KEY) no configuradas en Streamlit Secrets. Funcionalidad DB Deshabilitada.")
+        return None
+
+    try:
+        # Si logramos leerlas
+        supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
         st.error(f"❌ Error al inicializar Supabase: {e}")
@@ -178,7 +184,7 @@ def registrar_alerta_db(data_alerta):
             'sugerencias': json.dumps(data_alerta['sugerencias'])
         }
         
-        # INSERCIÓN: Se inserta el registro en la tabla "alertas"
+        # INSERCIÓN
         supabase.table(SUPABASE_TABLE).insert(data).execute()
         
         # Limpiar caché para que la vista de monitoreo se actualice
@@ -321,9 +327,10 @@ def vista_prediccion():
         st.error(f"❌ El formulario está deshabilitado. No se pudo cargar el modelo de IA. Verifique el enlace de descarga: {MODELO_URL}")
         return
 
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("❌ ERROR CRÍTICO: Las claves de Supabase no están cargadas. Configure los Secretos en la interfaz de Streamlit Cloud.")
-        return
+    # No verificamos los secretos aquí para evitar el Key Error al inicio. Se verifica en registrar_alerta_db
+    # if not SUPABASE_URL or not SUPABASE_KEY:
+    #     st.error("❌ ERROR CRÍTICO: Las claves de Supabase no están cargadas. Configure los Secretos en la interfaz de Streamlit Cloud.")
+    #     return
 
     if 'prediction_done' not in st.session_state: st.session_state.prediction_done = False
     with st.form("formulario_prediccion"):
@@ -370,8 +377,10 @@ def vista_prediccion():
             else: resultado_final = resultado_ml
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia) 
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales}
-            # Se llama a la función de registro aquí
+            
+            # Se llama a la función de registro aquí (fallará si los secretos no están bien)
             registrar_alerta_db(alerta_data)
+            
             st.session_state.resultado = resultado_final; st.session_state.prob_alto_riesgo = prob_alto_riesgo; st.session_state.gravedad_anemia = gravedad_anemia; st.session_state.sugerencias_finales = sugerencias_finales; st.session_state.data_reporte = data; st.session_state.prediction_done = True
             st.rerun()
 
