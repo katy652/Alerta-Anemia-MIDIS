@@ -26,13 +26,11 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- URL DEL MODELO GRANDE (SE USA LA URL DE DESCARGA DIRECTA DE GOOGLE DRIVE) ---
-# Si esta URL falla (ERROR CRÍTICO), la solución es cambiar el hosting (Dropbox/GitHub Releases)
+# --- URL DEL MODELO GRANDE (Si esta URL falla, la IA se deshabilita) ---
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE (Lectura PLANA para evitar KeyErrors) ---
-# Se inicializa con None para que la app se ejecute, y la lectura real se hace en get_supabase_client()
+# --- CONFIGURACIÓN DE SUPABASE (Se inicia con None para evitar KeyErrors) ---
 SUPABASE_URL = None
 SUPABASE_KEY = None
 SUPABASE_TABLE = "alertas" 
@@ -40,29 +38,32 @@ SUPABASE_TABLE = "alertas"
 # --- Carga de Activos ML ---
 @st.cache_resource
 def load_model_components():
-    """Descarga el modelo grande y carga los activos de ML."""
+    """Descarga el modelo grande y carga los activos de ML (Manejo de error CRÍTICO de descarga)."""
     
+    # 1. Carga de columnas (Debe estar en GitHub)
     try:
-        # Nota: modelo_columns.joblib debe estar subido en la raíz de tu repo
         model_columns = joblib.load(COLUMNS_FILENAME)
+        st.success("✅ Activos de columna cargados exitosamente.")
     except FileNotFoundError:
         st.error(f"❌ ERROR: No se encontró el archivo de columnas {COLUMNS_FILENAME}. ¡Debe subirlo a GitHub!")
         return None, None
         
+    # 2. BLOQUE MODIFICADO: Intento de descarga del modelo grande (modelo_anemia.joblib)
     try:
-        st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        # Esto intenta descargar el archivo. Si falla, el ERROR CRÍTICO será visible.
+        st.info("Intentando descargar el modelo de Machine Learning desde la nube...")
         response = requests.get(MODELO_URL, stream=True, timeout=30) 
         response.raise_for_status() 
         model_data = io.BytesIO(response.content)
         model = joblib.load(model_data)
-        st.success("✅ Modelo cargado exitosamente.")
+        st.success("✅ Modelo de IA cargado exitosamente.")
         return model, model_columns
     except Exception as e:
-        # Aquí se captura el error de URL inválida o falla de descarga
+        # Aquí se captura el ERROR CRÍTICO de Google Drive
         st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande: {e}")
-        st.info(f"Verifica que el enlace de Drive sea de descarga directa y que el archivo esté compartido públicamente. URL Usada: {MODELO_URL}")
-        return None, None
+        st.warning("⚠️ **La predicción de IA está temporalmente deshabilitada.** (El enlace de Drive no funciona)")
+        # CAMBIO CRÍTICO: Devolver None para el modelo de IA, PERO SÍ LAS COLUMNAS.
+        # Esto permite que el formulario se muestre.
+        return None, model_columns 
 
 MODELO_ML, MODELO_COLUMNS = load_model_components()
 
@@ -71,16 +72,15 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 @st.cache_resource
 def get_supabase_client():
     """Inicializa y retorna el cliente de Supabase (Lectura segura de secretos PLANA)."""
-    # Intentamos leer las variables planas (SUPABASE_URL, SUPABASE_KEY) para evitar el Key Error
+    # Intentamos leer las variables planas (SUPABASE_URL, SUPABASE_KEY)
     try:
-        url = st.secrets["SUPABASE_URL"] # Ahora busca el secreto plano
-        key = st.secrets["SUPABASE_KEY"] # Ahora busca el secreto plano
+        url = st.secrets["SUPABASE_URL"] 
+        key = st.secrets["SUPABASE_KEY"] 
     except KeyError:
         st.error("❌ ERROR: Claves de Supabase (SUPABASE_URL/KEY) no configuradas en Streamlit Secrets. Funcionalidad DB Deshabilitada.")
         return None
 
     try:
-        # Si logramos leerlas
         supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
@@ -119,7 +119,9 @@ def preprocess_data_for_ml(data_raw, model_columns):
     return df_final 
 
 def predict_risk_ml(data_raw): 
-    if MODELO_ML is None or MODELO_COLUMNS is None: return 0.5, "ERROR: Modelo IA no disponible"
+    # Solo predice si el modelo se cargó (MODELO_ML no es None)
+    if MODELO_ML is None or MODELO_COLUMNS is None: 
+        return 0.5, "RIESGO INDEFINIDO (IA DESHABILITADA)"
     try:
         X_df = preprocess_data_for_ml(data_raw, MODELO_COLUMNS)
         resultado_clase = MODELO_ML.predict(X_df)[0]
@@ -128,6 +130,7 @@ def predict_risk_ml(data_raw):
         resultado_texto = RISK_MAPPING.get(resultado_clase, "RIESGO INDEFINIDO")
         return prob_alto_riesgo, resultado_texto
     except Exception as e:
+        st.error(f"Fallo en el motor de IA durante la predicción: {e}")
         return 0.5, "ERROR: Fallo en el motor de IA"
 
 def generar_sugerencias(data, resultado_final, gravedad_anemia): 
@@ -170,7 +173,7 @@ def registrar_alerta_db(data_alerta):
         return False
     try:
         if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
-        elif data_alerta['riesgo'].startswith("ALTO RIESGO"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
+        elif data_alerta['riesgo'].startswith("ALTO RIESGO") and not data_alerta['riesgo'].startswith("ALTO RIESGO (Alerta Clínica"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
         else: estado = 'REGISTRADO'
         
         data = {
@@ -184,10 +187,8 @@ def registrar_alerta_db(data_alerta):
             'sugerencias': json.dumps(data_alerta['sugerencias'])
         }
         
-        # INSERCIÓN
         supabase.table(SUPABASE_TABLE).insert(data).execute()
         
-        # Limpiar caché para que la vista de monitoreo se actualice
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
         
@@ -323,14 +324,14 @@ def vista_prediccion():
     st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.1 Híbrida)")
     st.markdown("---")
     
-    if MODELO_ML is None:
-        st.error(f"❌ El formulario está deshabilitado. No se pudo cargar el modelo de IA. Verifique el enlace de descarga: {MODELO_URL}")
+    # Revisamos si el modelo de columnas se cargó. Esto es el chequeo más básico.
+    if MODELO_COLUMNS is None:
+        st.error(f"❌ El formulario está deshabilitado. No se pudo cargar los archivos necesarios. Revise los errores críticos de arriba.")
         return
 
-    # No verificamos los secretos aquí para evitar el Key Error al inicio. Se verifica en registrar_alerta_db
-    # if not SUPABASE_URL or not SUPABASE_KEY:
-    #     st.error("❌ ERROR CRÍTICO: Las claves de Supabase no están cargadas. Configure los Secretos en la interfaz de Streamlit Cloud.")
-    #     return
+    # Mensaje de advertencia si la IA no está disponible
+    if MODELO_ML is None:
+        st.warning("⚠️ El motor de Predicción de IA no está disponible. Solo se realizarán la **Clasificación Clínica** y la **Generación de PDF**.")
 
     if 'prediction_done' not in st.session_state: st.session_state.prediction_done = False
     with st.form("formulario_prediccion"):
@@ -370,15 +371,22 @@ def vista_prediccion():
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
             data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
+            
             gravedad_anemia, umbral_clinico = clasificar_anemia_clinica(hemoglobina, edad_meses)
             prob_alto_riesgo, resultado_ml = predict_risk_ml(data)
-            if gravedad_anemia in ['SEVERA', 'MODERADA']: resultado_final = f"ALTO RIESGO (Alerta Clínica - {gravedad_anemia})"
-            elif resultado_ml.startswith("ALTO RIESGO"): resultado_final = f"ALTO RIESGO (Predicción ML - Anemia {gravedad_anemia})"
-            else: resultado_final = resultado_ml
+            
+            # Lógica para determinar el resultado final
+            if gravedad_anemia in ['SEVERA', 'MODERADA']: 
+                resultado_final = f"ALTO RIESGO (Alerta Clínica - {gravedad_anemia})"
+            elif resultado_ml.startswith("ALTO RIESGO"): 
+                resultado_final = f"ALTO RIESGO (Predicción ML - Anemia {gravedad_anemia})"
+            else: 
+                resultado_final = resultado_ml
+            
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia) 
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales}
             
-            # Se llama a la función de registro aquí (fallará si los secretos no están bien)
+            # Intenta registrar en DB
             registrar_alerta_db(alerta_data)
             
             st.session_state.resultado = resultado_final; st.session_state.prob_alto_riesgo = prob_alto_riesgo; st.session_state.gravedad_anemia = gravedad_anemia; st.session_state.sugerencias_finales = sugerencias_finales; st.session_state.data_reporte = data; st.session_state.prediction_done = True
