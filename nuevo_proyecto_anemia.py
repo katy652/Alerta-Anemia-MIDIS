@@ -38,15 +38,50 @@ SUPABASE_TABLE = "alertas"
 # --- Carga de Activos ML ---
 @st.cache_resource
 def load_model_components():
-    """Descarga el modelo grande y carga los activos de ML (Manejo de error CRÍTICO de descarga)."""
-    
-    # 1. Carga de columnas (Debe estar en GitHub)
+    """Descarga el modelo grande y carga los activos de ML (manejo de errores robusto)."""
+    import requests, joblib, os
+
+    MODEL_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+    MODEL_FILENAME = "modelo_anemia.joblib"
+    COLUMNS_FILENAME = "columns_anemia.joblib"
+
+    # 1. Cargar columnas (desde archivo local o GitHub)
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
         st.success("✅ Activos de columna cargados exitosamente.")
     except FileNotFoundError:
-        st.error(f"❌ ERROR: No se encontró el archivo de columnas {COLUMNS_FILENAME}. ¡Debe subirlo a GitHub!")
+        st.error(f"❌ ERROR: No se encontró el archivo de columnas '{COLUMNS_FILENAME}'. ¡Debe subirlo a GitHub o a la carpeta del proyecto!")
         return None, None
+
+    # 2. Descargar modelo desde Google Drive si no existe
+    if not os.path.exists(MODEL_FILENAME):
+        try:
+            with st.spinner("Descargando modelo de Machine Learning desde la nube..."):
+                response = requests.get(MODEL_URL, allow_redirects=True, timeout=120)
+                if response.status_code == 200:
+                    with open(MODEL_FILENAME, "wb") as f:
+                        f.write(response.content)
+                    st.success("✅ Modelo descargado y guardado correctamente.")
+                else:
+                    st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo. Código HTTP: {response.status_code}")
+                    st.warning("Verifica que el enlace de Drive sea de descarga directa y esté compartido públicamente.")
+                    st.info(f"URL usada: {MODEL_URL}")
+                    return None, None
+        except Exception as e:
+            st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo: {str(e)}")
+            st.warning("El modelo no se pudo cargar. Revisa tu conexión o el enlace de Drive.")
+            return None, None
+
+    # 3. Cargar modelo desde archivo local
+    try:
+        modelo = joblib.load(MODEL_FILENAME)
+        st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
+    except Exception as e:
+        st.error(f"❌ ERROR al cargar el modelo local: {e}")
+        st.warning("El modelo podría estar corrupto o incompleto.")
+        return None, None
+
+    return modelo, model_columns
         
     # 2. BLOQUE MODIFICADO: Intento de descarga del modelo grande (modelo_anemia.joblib)
     try:
@@ -474,3 +509,4 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
