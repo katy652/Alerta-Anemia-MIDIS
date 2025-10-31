@@ -26,14 +26,14 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- URL DEL MODELO GRANDE (¡PUNTO CRÍTICO DE ERROR!) ---
+# --- URL DEL MODELO GRANDE (¡PUNTO CRÍTICO! REEMPLAZAR ESTE TEXTO) ---
 # 🚨 ¡IMPORTANTE! REEMPLAZA ESTA LÍNEA con tu enlace de DESCARGA DIRECTA REAL
 MODELO_URL = "TU_ENLACE_DE_DESCARGA_DIRECTA_DEL_MODELO_AQUI" 
 COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE (CORRECCIÓN FINAL DE ACCESO) ---
-SUPABASE_URL = st.secrets["supabase"]["url"] # Lee desde .streamlit/secrets.toml
-SUPABASE_KEY = st.secrets["supabase"]["key"] # Lee desde .streamlit/secrets.toml
+# --- CONFIGURACIÓN DE SUPABASE (Lee desde .streamlit/secrets.toml) ---
+SUPABASE_URL = st.secrets["supabase"]["url"]
+SUPABASE_KEY = st.secrets["supabase"]["key"]
 SUPABASE_TABLE = "alertas" 
 
 # --- Carga de Activos ML ---
@@ -42,6 +42,7 @@ def load_model_components():
     """Descarga el modelo grande y carga los activos de ML."""
     
     try:
+        # Nota: modelo_columns.joblib debe estar subido en la raíz de tu repo
         model_columns = joblib.load(COLUMNS_FILENAME)
     except FileNotFoundError:
         st.error(f"❌ ERROR: No se encontró el archivo de columnas {COLUMNS_FILENAME}. ¡Debe subirlo a GitHub!")
@@ -49,7 +50,7 @@ def load_model_components():
         
     try:
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        # Esto fallará si MODELO_URL es el placeholder que causó el error en la imagen
+        # Esto falla si MODELO_URL no es un enlace de descarga directa válido
         response = requests.get(MODELO_URL, stream=True, timeout=30) 
         response.raise_for_status() 
         model_data = io.BytesIO(response.content)
@@ -69,6 +70,7 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 def get_supabase_client():
     """Inicializa y retorna el cliente de Supabase."""
     if not SUPABASE_URL or not SUPABASE_KEY:
+        # Esta línea ahora solo aparecerá si no se ha configurado el secrets.toml o en la interfaz
         st.error("❌ ERROR: Claves de Supabase no cargadas. Revise el archivo .streamlit/secrets.toml.")
         return None
     try:
@@ -81,7 +83,6 @@ def get_supabase_client():
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
-# (El código de las funciones se mantiene sin cambios, es la lógica de tu app)
 
 def limpiar_texto(texto): 
     if pd.isna(texto): return 'desconocido'
@@ -152,7 +153,7 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
     return sugerencias_limpias
 
 # ==============================================================================
-# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE)
+# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE) - Incluye la lógica de inserción
 # ==============================================================================
 
 def registrar_alerta_db(data_alerta):
@@ -164,17 +165,37 @@ def registrar_alerta_db(data_alerta):
         if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
         elif data_alerta['riesgo'].startswith("ALTO RIESGO"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
         else: estado = 'REGISTRADO'
-        data = {'dni': data_alerta['DNI'], 'nombre_apellido': data_alerta['Nombre_Apellido'], 'edad_meses': data_alerta['Edad_meses'], 'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 'riesgo': data_alerta['riesgo'], 'fecha_alerta': datetime.date.today().isoformat(), 'estado': estado, 'sugerencias': json.dumps(data_alerta['sugerencias'])}
+        
+        # El DNI y el Nombre deben ser validados en el UI (vista_prediccion)
+        data = {
+            'dni': data_alerta['DNI'], 
+            'nombre_apellido': data_alerta['Nombre_Apellido'], 
+            'edad_meses': data_alerta['Edad_meses'], 
+            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 
+            'riesgo': data_alerta['riesgo'], 
+            'fecha_alerta': datetime.date.today().isoformat(), 
+            'estado': estado, 
+            'sugerencias': json.dumps(data_alerta['sugerencias'])
+        }
+        
+        # INSERCIÓN: Se inserta el registro en la tabla "alertas"
         supabase.table(SUPABASE_TABLE).insert(data).execute()
+        
+        # Limpiar caché para que la vista de monitoreo se actualice
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
-        if estado.startswith('PENDIENTE'): st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
-        else: st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
+        
+        if estado.startswith('PENDIENTE'): 
+            st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
+        else: 
+            st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
         return True
     except Exception as e:
+        # Esto captura errores de Supabase si la tabla no existe o hay un error de columna
         st.error(f"❌ Error al registrar en Supabase: {e}")
         return False
-
+# (Resto de funciones de Supabase... fetch_data, obtener_alertas_pendientes_o_seguimiento, etc.)
+# ... (No se repiten las funciones para mantener la longitud manejable, pero están incluidas en el código anterior que te di)
 def safe_json_to_text_display(json_str): 
     if isinstance(json_str, str) and json_str.strip() and json_str.startswith('['):
         try:
@@ -227,7 +248,6 @@ def actualizar_estado_alerta(alerta_id, nuevo_estado):
     except Exception as e:
         st.error(f"Error al actualizar en Supabase: {e}")
         return False
-
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
@@ -291,7 +311,6 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     
     return bytes(pdf.output(dest='S'))
 
-
 # ==============================================================================
 # 5. VISTAS DE LA APLICACIÓN (STREAMLIT UI)
 # ==============================================================================
@@ -353,6 +372,7 @@ def vista_prediccion():
             else: resultado_final = resultado_ml
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia) 
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales}
+            # Se llama a la función de registro aquí
             registrar_alerta_db(alerta_data)
             st.session_state.resultado = resultado_final; st.session_state.prob_alto_riesgo = prob_alto_riesgo; st.session_state.gravedad_anemia = gravedad_anemia; st.session_state.sugerencias_finales = sugerencias_finales; st.session_state.data_reporte = data; st.session_state.prediction_done = True
             st.rerun()
