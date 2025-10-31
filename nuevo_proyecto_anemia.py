@@ -182,14 +182,15 @@ def registrar_alerta_db(data_alerta):
             'dni': data_alerta['DNI'], 
             'nombre_apellido': data_alerta['Nombre_Apellido'], 
             'edad_meses': data_alerta['Edad_meses'], 
-            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 
+            # 🟢 CORRECCIÓN APLICADA: 'hemoglobina_g_dL' cambiado a 'hemoglobina_g_dl' (minúsculas)
+            'hemoglobina_g_dl': data_alerta['Hemoglobina_g_dL'], 
             'riesgo': data_alerta['riesgo'], 
             'fecha_alerta': datetime.date.today().isoformat(), 
             'estado': estado, 
             'sugerencias': json.dumps(data_alerta['sugerencias'])
         }
         
-        # 🚨 CORRECCIÓN CLAVE: Capturar la respuesta y verificar errores de la API
+        # 🚨 Capturar la respuesta y verificar errores de la API
         response = supabase.table(SUPABASE_TABLE).insert(data).execute()
         
         if response.error:
@@ -236,7 +237,7 @@ def fetch_data(query_condition=None):
         query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
         if query_condition: query = query.or_(query_condition)
         
-        # 🚨 CORRECCIÓN CLAVE: Capturar la respuesta y verificar errores de la API para lectura
+        # 🚨 Capturar la respuesta y verificar errores de la API para lectura
         response = query.execute()
         
         if response.error:
@@ -245,7 +246,8 @@ def fetch_data(query_condition=None):
 
         if response.data:
             df = pd.DataFrame(response.data)
-            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+            # Nota: Aquí también se corrigió el rename, pero la lectura a menudo es más flexible.
+            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dl': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
             return df
         return pd.DataFrame()
     except Exception as e:
