@@ -12,10 +12,9 @@ import json
 import re
 
 # ==============================================================================
-# 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO (Punto 1 y 2)
+# 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
 # ==============================================================================
 
-# Configuración de página
 st.set_page_config(
     page_title="Alerta de Riesgo de Anemia (IA)",
     page_icon="🩸",
@@ -23,38 +22,34 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- UMBRALES CLÍNICOS ---
 UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- URL DEL MODELO GRANDE (CRÍTICO - PUNTO 1) ---
-# ⚠️ DEBE REEMPLAZAR ESTA LÍNEA con su enlace de DESCARGA DIRECTA (Drive, Dropbox, etc.)
+# 🚨 ¡IMPORTANTE! REEMPLAZA ESTA LÍNEA con tu enlace de DESCARGA DIRECTA REAL
 MODELO_URL = "TU_ENLACE_DE_DESCARGA_DIRECTA_DEL_MODELO_AQUI" 
-COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
+COLUMNS_FILENAME = "modelo_columns.joblib" 
 
-# --- CONFIGURACIÓN DE SUPABASE (Punto 4) ---
-# Las credenciales se leen automáticamente del archivo .streamlit/secrets.toml
-# 🔥 CORRECCIÓN CRÍTICA: LECTURA SEGURA DE CLAVES DESDE SECRETS.TOML
-SUPABASE_URL = st.secrets["supabase"]["url"]
-SUPABASE_KEY = st.secrets["supabase"]["key"]
-SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
+# --- CONFIGURACIÓN DE SUPABASE (CORRECCIÓN FINAL) ---
+SUPABASE_URL = st.secrets["supabase"]["url"] # Lee desde .streamlit/secrets.toml
+SUPABASE_KEY = st.secrets["supabase"]["key"] # Lee desde .streamlit/secrets.toml
+SUPABASE_TABLE = "alertas" 
 
 # --- Carga de Activos ML ---
 @st.cache_resource
 def load_model_components():
     """Descarga el modelo grande y carga los activos de ML."""
     
-    # 1. Cargar el archivo de columnas (Debe estar en GitHub)
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
     except FileNotFoundError:
         st.error(f"❌ ERROR: No se encontró el archivo de columnas {COLUMNS_FILENAME}. ¡Debe subirlo a GitHub!")
         return None, None
         
-    # 2. Descargar y cargar el modelo grande (Desde la URL)
     try:
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
+        # Esto fallará si MODELO_URL no es una URL de descarga directa funcional.
         response = requests.get(MODELO_URL, stream=True, timeout=30)
         response.raise_for_status() 
         model_data = io.BytesIO(response.content)
@@ -86,6 +81,8 @@ def get_supabase_client():
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
+# (Todas las funciones de preprocesamiento, clasificación, predicción, 
+# y gestión de sugerencias se mantienen sin cambios.)
 
 def limpiar_texto(texto): 
     if pd.isna(texto): return 'desconocido'
@@ -309,10 +306,9 @@ def vista_prediccion():
         return
 
     if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("❌ ERROR CRÍTICO: Las claves de Supabase no están cargadas. Revise su archivo .streamlit/secrets.toml y su código principal.")
+        st.error("❌ ERROR CRÍTICO: Las claves de Supabase no están cargadas. Revise su archivo .streamlit/secrets.toml.")
         return
 
-    # ... (Resto del formulario y lógica de resultados) ...
     if 'prediction_done' not in st.session_state: st.session_state.prediction_done = False
     with st.form("formulario_prediccion"):
         st.subheader("0. Datos de Identificación y Contacto")
@@ -444,4 +440,3 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
-
