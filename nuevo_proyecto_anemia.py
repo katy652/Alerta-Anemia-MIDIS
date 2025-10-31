@@ -38,24 +38,28 @@ COLUMNS_FILENAME = "modelo_columns.joblib"
 # --- CONFIGURACIÓN DE SUPABASE ---
 SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
 
-# ✅ 1. Inicialización del Cliente de Supabase (Cacheado y con os.environ)
 @st.cache_resource
 def init_supabase_client() -> Client:
-    """Inicializa y retorna el cliente de Supabase una sola vez, leyendo del entorno."""
+    """Inicializa el cliente de Supabase usando st.secrets en Streamlit Cloud."""
     try:
-        # CAMBIO CLAVE: Leer directamente del entorno para mayor robustez en Streamlit Cloud
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_KEY")
-        
+        # Primero intenta con st.secrets (Streamlit Cloud)
+        if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+            url = st.secrets["SUPABASE_URL"]
+            key = st.secrets["SUPABASE_KEY"]
+        else:
+            # Fallback: lectura local desde variables de entorno (modo desarrollo)
+            url = os.environ.get("SUPABASE_URL")
+            key = os.environ.get("SUPABASE_KEY")
+
         if not url or not key:
-            # Mensaje de error modificado para reflejar la lectura del entorno
-            st.error("ERROR: Las credenciales SUPABASE_URL o SUPABASE_KEY NO están definidas en el entorno/secrets de Streamlit Cloud.")
+            st.error("❌ No se encontraron las credenciales de Supabase. Asegúrate de definir SUPABASE_URL y SUPABASE_KEY en Secrets.")
             return None
-            
+
         supabase: Client = create_client(url, key)
+        st.success("✅ Conexión con Supabase inicializada correctamente.")
         return supabase
     except Exception as e:
-        # st.error(f"Error de conexión inicial a Supabase: {e}") 
+        st.error(f"❌ Error al conectar con Supabase: {e}")
         return None
 
 # Inicialización GLOBAL del cliente de Supabase (Se ejecuta una sola vez)
@@ -501,3 +505,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
