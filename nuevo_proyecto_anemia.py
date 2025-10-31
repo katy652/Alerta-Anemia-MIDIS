@@ -6,14 +6,15 @@ from supabase import create_client, Client
 import datetime
 from fpdf import FPDF 
 import base64
-import requests 
-import io 
 import json
+import gdown 
+import os # 👈 NECESARIO: Importar 'os' para leer variables de entorno
+import io
 import re
-import gdown  
+import requests
 
 # ==============================================================================
-# 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO (Punto 1 y 2)
+# 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
 # ==============================================================================
 
 # Configuración de página
@@ -30,32 +31,52 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- URL DEL MODELO GRANDE (CRÍTICO) ---
-# El ID ha sido verificado para que funcione con gdown
+# Asegúrate de que el archivo 'modelo_columns.joblib' esté en tu repositorio de GitHub
 MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
-COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo pequeño va en GitHub
+COLUMNS_FILENAME = "modelo_columns.joblib"
 
-# --- CONFIGURACIÓN DE SUPABASE (Punto 4) ---
-# Las credenciales ahora se leen dentro de la función de cliente para mayor robustez
+# --- CONFIGURACIÓN DE SUPABASE ---
 SUPABASE_TABLE = "alertas" # Nombre de la tabla en Supabase
+
+# ✅ 1. Inicialización del Cliente de Supabase (Cacheado y con os.environ)
+@st.cache_resource
+def init_supabase_client() -> Client:
+    """Inicializa y retorna el cliente de Supabase una sola vez, leyendo del entorno."""
+    try:
+        # CAMBIO CLAVE: Leer directamente del entorno para mayor robustez en Streamlit Cloud
+        url: str = os.environ.get("SUPABASE_URL")
+        key: str = os.environ.get("SUPABASE_KEY")
+        
+        if not url or not key:
+            # Mensaje de error modificado para reflejar la lectura del entorno
+            st.error("ERROR: Las credenciales SUPABASE_URL o SUPABASE_KEY NO están definidas en el entorno/secrets de Streamlit Cloud.")
+            return None
+            
+        supabase: Client = create_client(url, key)
+        return supabase
+    except Exception as e:
+        # Captura errores de conexión, DNS, o RLS
+        # st.error(f"Error de conexión inicial a Supabase: {e}") 
+        return None
+
+# Inicialización GLOBAL del cliente de Supabase (Se ejecuta una sola vez)
+SUPABASE_CLIENT = init_supabase_client()
+
 
 # --- Carga de Activos ML ---
 @st.cache_resource
 def load_model_components():
     """Descarga el modelo grande y carga los activos de ML."""
-    
-    # 1. Cargar el archivo de columnas 
     try:
         model_columns = joblib.load(COLUMNS_FILENAME)
     except Exception as e:
-        # Modificado para capturar errores de archivo vacío/corrupto
-        st.error(f"❌ ERROR: El archivo de columnas '{COLUMNS_FILENAME}' está vacío o corrupto. Por favor, vuelva a generar el archivo y subirlo a GitHub. Error: {e}")
+        # Esto ocurre si el archivo modelo_columns.joblib no está en el repo o está vacío
+        st.error(f"❌ ERROR: El archivo de columnas '{COLUMNS_FILENAME}' está vacío o corrupto. Error: {e}")
         return None, None
         
-    # 2. Descargar y cargar el modelo grande (USANDO gdown)
     try:
+        # Esto solo se ejecuta la primera vez en el servidor
         st.info("Descargando el modelo de Machine Learning desde la nube (solo ocurre una vez)...")
-        
-        # Lógica de gdown para evitar el bloqueo de archivos grandes de Drive
         gdown.download(url=MODELO_URL, output="modelo_anemia.joblib", quiet=True, fuzzy=True)
 
         model = joblib.load("modelo_anemia.joblib")
@@ -69,26 +90,6 @@ def load_model_components():
 MODELO_ML, MODELO_COLUMNS = load_model_components()
 
 RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
-
-# ✅ CORRECCIÓN DE ARQUITECTURA: Mover la lectura de secrets aquí dentro
-@st.cache_resource
-def get_supabase_client():
-    """Inicializa y retorna el cliente de Supabase."""
-    try:
-        # Usamos .get() en el objeto st.secrets para un manejo seguro del Key Error
-        url = st.secrets.get("SUPABASE_URL")
-        key = st.secrets.get("SUPABASE_KEY")
-        
-        # Si las claves no están en el TOML, el cliente debe ser None
-        if not url or not key:
-            # Aquí es donde se atrapa si las claves no están configuradas en Streamlit Cloud.
-            return None
-        
-        supabase: Client = create_client(url, key)
-        return supabase
-    except Exception as e:
-        # Aquí se atrapan errores de conexión, firewall o RLS.
-        return None
 
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
@@ -167,23 +168,28 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
 # ==============================================================================
 
 def registrar_alerta_db(data_alerta):
-    supabase = get_supabase_client()
+    supabase = SUPABASE_CLIENT
+    
     if not supabase: 
-        st.error("No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
+        st.error("❌ No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
         return False
     try:
         if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
         elif data_alerta['riesgo'].startswith("ALTO RIESGO"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
         else: estado = 'REGISTRADO'
         data = {'dni': data_alerta['DNI'], 'nombre_apellido': data_alerta['Nombre_Apellido'], 'edad_meses': data_alerta['Edad_meses'], 'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 'riesgo': data_alerta['riesgo'], 'fecha_alerta': datetime.date.today().isoformat(), 'estado': estado, 'sugerencias': json.dumps(data_alerta['sugerencias'])}
+        # La corrección de RLS que hicimos en Supabase permite esta inserción
         supabase.table(SUPABASE_TABLE).insert(data).execute()
+        
+        # Limpia la caché de datos para que las vistas se actualicen inmediatamente
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
+        
         if estado.startswith('PENDIENTE'): st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
         else: st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
         return True
     except Exception as e:
-        st.error(f"❌ Error al registrar en Supabase: {e}")
+        st.error(f"❌ Error al registrar en Supabase. Posible problema de RLS (Row Level Security) o el formato de datos: {e}")
         return False
 
 def safe_json_to_text_display(json_str): 
@@ -200,13 +206,23 @@ def safe_json_to_text_display(json_str):
     return "No hay sugerencias registradas."
 
 def fetch_data(query_condition=None): 
-    supabase = get_supabase_client()
-    # Si el cliente es None, retorna DataFrame vacío (Esto evita el error de conexión)
-    if not supabase: return pd.DataFrame() 
+    supabase = SUPABASE_CLIENT
+    
+    # Si el cliente es None, retorna DataFrame vacío y muestra el error de conexión
+    if not supabase: 
+        st.warning("⚠️ La conexión a Supabase no está activa. Los datos no se pueden cargar.")
+        return pd.DataFrame() 
+        
     try:
+        # La corrección de RLS que hicimos en Supabase permite esta lectura (SELECT)
         query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
         if query_condition: query = query.or_(query_condition)
         response = query.execute()
+        
+        if response.error:
+            st.error(f"❌ Error al obtener datos de la tabla: {response.error.message}")
+            return pd.DataFrame()
+
         if response.data:
             df = pd.DataFrame(response.data)
             df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
@@ -214,11 +230,11 @@ def fetch_data(query_condition=None):
         return pd.DataFrame()
     except Exception as e:
         # st.error(f"❌ Error al consultar datos en Supabase: {e}") 
-        # Mantener el error en el try/except de vista_monitoreo, aquí solo retorna vacío.
         return pd.DataFrame()
 
 @st.cache_data
 def obtener_alertas_pendientes_o_seguimiento(): 
+    # Filtra los estados que requieren acción (Monitoreo Activo)
     query_condition = "estado.ilike.PENDIENTE%,estado.eq.EN SEGUIMIENTO"
     df = fetch_data(query_condition=query_condition)
     if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
@@ -226,11 +242,12 @@ def obtener_alertas_pendientes_o_seguimiento():
 
 @st.cache_data
 def obtener_todos_los_registros(): 
+    # Obtiene todos los registros para el Reporte Histórico
     df = fetch_data()
     return df
 
 def actualizar_estado_alerta(alerta_id, nuevo_estado): 
-    supabase = get_supabase_client()
+    supabase = SUPABASE_CLIENT
     if not supabase: return False
     try:
         supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
@@ -244,6 +261,7 @@ def actualizar_estado_alerta(alerta_id, nuevo_estado):
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
+# (El código de generación de PDF es extenso y se mantiene igual que antes)
 
 class PDF(FPDF):
     def header(self):
@@ -390,9 +408,10 @@ def vista_monitoreo():
     st.markdown("---")
     st.header("1. Casos de Monitoreo Activo (Pendientes y En Seguimiento)")
     
-    supabase_client = get_supabase_client()
+    supabase_client = SUPABASE_CLIENT
+    
     if supabase_client is None:
-        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus credenciales y permisos (RLS).")
+        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus secretos.")
         return
 
     df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
@@ -438,23 +457,20 @@ def vista_monitoreo():
 # 6. ESTRUCTURA DE LA APP (NAVEGACIÓN)
 # ==============================================================================
 
-st.sidebar.title("🩸 Menú MIDIS Anemia")
-st.sidebar.markdown("---")
-opcion_seleccionada = st.sidebar.radio(
-    "Selecciona una vista:",
-    ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
-)
-st.sidebar.markdown("---")
-st.sidebar.info("App Híbrida v2.1 (Clínica + IA)")
+def main():
+    st.sidebar.title("🩸 Menú MIDIS Anemia")
+    st.sidebar.markdown("---")
+    opcion_seleccionada = st.sidebar.radio(
+        "Selecciona una vista:",
+        ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
+    )
+    st.sidebar.markdown("---")
+    st.sidebar.info("App Híbrida v2.1 (Clínica + IA)")
 
-if opcion_seleccionada == "📝 Generar Informe (Predicción)":
-    vista_prediccion()
-elif opcion_seleccionada == "📊 Monitoreo y Reportes":
-    vista_monitoreo()
+    if opcion_seleccionada == "📝 Generar Informe (Predicción)":
+        vista_prediccion()
+    elif opcion_seleccionada == "📊 Monitoreo y Reportes":
+        vista_monitoreo()
 
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()
