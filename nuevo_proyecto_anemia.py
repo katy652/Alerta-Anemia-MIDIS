@@ -43,7 +43,7 @@ def load_model_components():
 
     MODEL_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
     MODEL_FILENAME = "modelo_anemia.joblib"
-    COLUMNS_FILENAME = "columns_anemia.joblib"
+    COLUMNS_FILENAME = "modelo_columns.joblib"
 
     # 1. Cargar columnas (desde archivo local o GitHub)
     try:
@@ -509,4 +509,5 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
