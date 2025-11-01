@@ -294,22 +294,25 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
     return df
 
-@st.cache_data
-def obtener_todos_los_registros(): 
-    df = fetch_data()
-    return df
-
-def actualizar_estado_alerta(alerta_id, nuevo_estado): 
-    supabase = get_supabase_client()
-    if not supabase: return False
+@st.cache_resource
+def get_supabase_client():
     try:
-        supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
-        obtener_alertas_pendientes_o_seguimiento.clear()
-        obtener_todos_los_registros.clear()
-        return True
+        # 👇 Usa la ruta completa a tu archivo secrets.toml
+        secrets = toml.load(r"D:\carrera de ciencia de base de datos\ciclo 6\proyecto productivo\ciclo A\secrets.toml")
+        url = secrets["SUPABASE_URL"]
+        key = secrets["SUPABASE_KEY"]
+        client: Client = create_client(url, key)
+        st.success("✅ Conexión exitosa con Supabase.")
+        return client
     except Exception as e:
-        st.error(f"Error al actualizar en Supabase: {e}")
-        return False
+        st.error(f"❌ Error cargando Supabase: {e}")
+        return None
+
+# Prueba rápida
+if __name__ == "__main__":
+    sb = get_supabase_client()
+    if sb:
+        print("Conexión OK")
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
@@ -531,6 +534,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
