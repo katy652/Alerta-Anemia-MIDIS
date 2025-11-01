@@ -226,90 +226,67 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
 def registrar_alerta_db(data_alerta):
     supabase = get_supabase_client()
     if not supabase: 
-        st.error("No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
+        st.error("❌ No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
         return False
+    
     try:
-        if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
-        elif data_alerta['riesgo'].startswith("ALTO RIESGO") and not data_alerta['riesgo'].startswith("ALTO RIESGO (Alerta Clínica"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
-        else: estado = 'REGISTRADO'
+        # ================================
+        # Determinar el estado del caso
+        # ================================
+        if 'SEVERA' in data_alerta.get('gravedad_anemia', '') or 'MODERADA' in data_alerta.get('gravedad_anemia', ''):
+            estado = 'PENDIENTE (CLÍNICO URGENTE)'
+        elif data_alerta.get('riesgo', '').startswith("ALTO RIESGO") and not data_alerta.get('riesgo', '').startswith("ALTO RIESGO (Alerta Clínica"):
+            estado = 'PENDIENTE (IA/VULNERABILIDAD)'
+        else:
+            estado = 'REGISTRADO'
         
+        # ================================
+        # Estructurar los datos a insertar
+        # ================================
         data = {
             'dni': data_alerta.get('DNI'),
             'nombre_apellido': data_alerta.get('Nombre_Apellido'),
             'edad_meses': data_alerta.get('Edad_meses'),
-            'hemoglobina_g_dl': data_alerta.get('Hemoglobina_g_dL') or data_alerta.get('Hemoglobina_g_dl') or data_alerta.get('Hemoglobina') or None,
+            
+            # 👇 Campo corregido con nombre real en Supabase
+            'hemoglobina_g_dL': (
+                data_alerta.get('Hemoglobina_g_dL') or 
+                data_alerta.get('Hemoglobina_g_dl') or 
+                data_alerta.get('Hemoglobina') or 
+                None
+            ),
+            
             'riesgo': data_alerta.get('riesgo'),
             'fecha_alerta': datetime.date.today().isoformat(),
             'estado': estado,
             'sugerencias': json.dumps(data_alerta.get('sugerencias', []))
         }
-        
+
+        # ================================
+        # Insertar registro en Supabase
+        # ================================
         supabase.table(SUPABASE_TABLE).insert(data).execute()
-        
+
+        # ================================
+        # Actualizar caché de consultas
+        # ================================
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
+
+        # ================================
+        # Mensaje al usuario
+        # ================================
+        if estado.startswith('PENDIENTE'):
+            st.info(f"✅ Caso registrado para **Monitoreo Activo (Supabase)**. DNI: **{data_alerta.get('DNI', '---')}**. Estado: **{estado}**.")
+        else:
+            st.success(f"✅ Caso registrado para **Control Estadístico (Supabase)**. DNI: **{data_alerta.get('DNI', '---')}**. Estado: **REGISTRADO**.")
         
-        if estado.startswith('PENDIENTE'): 
-            st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
-        else: 
-            st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
         return True
+
     except Exception as e:
         st.error(f"❌ Error al registrar en Supabase: {e}")
         return False
 
-def safe_json_to_text_display(json_str): 
-    if isinstance(json_str, str) and json_str.strip() and json_str.startswith('['):
-        try:
-            sug_list = json.loads(json_str)
-            sug_display = []
-            for sug in sug_list:
-                sug_markdown = sug.replace('|', ' | ')
-                sug_display.append(sug_markdown)
-            return "\n".join(sug_display)
-        except json.JSONDecodeError:
-            return "**ERROR: Datos de sugerencia corruptos.**"
-    return "No hay sugerencias registradas."
-
-def fetch_data(query_condition=None): 
-    supabase = get_supabase_client()
-    if not supabase: return pd.DataFrame()
-    try:
-        query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
-        if query_condition: query = query.or_(query_condition)
-        response = query.execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Error al consultar datos en Supabase: {e}")
-        return pd.DataFrame()
-
-@st.cache_data
-def obtener_alertas_pendientes_o_seguimiento(): 
-    query_condition = "estado.ilike.PENDIENTE%,estado.eq.EN SEGUIMIENTO"
-    df = fetch_data(query_condition=query_condition)
-    if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
-    return df
-
-@st.cache_data
-def obtener_todos_los_registros(): 
-    df = fetch_data()
-    return df
-
-def actualizar_estado_alerta(alerta_id, nuevo_estado): 
-    supabase = get_supabase_client()
-    if not supabase: return False
-    try:
-        supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
-        obtener_alertas_pendientes_o_seguimiento.clear()
-        obtener_todos_los_registros.clear()
-        return True
-    except Exception as e:
-        st.error(f"Error al actualizar en Supabase: {e}")
-        return False
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
@@ -531,6 +508,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
