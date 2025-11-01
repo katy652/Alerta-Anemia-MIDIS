@@ -234,14 +234,14 @@ def registrar_alerta_db(data_alerta):
         else: estado = 'REGISTRADO'
         
         data = {
-            'dni': data_alerta['DNI'], 
-            'nombre_apellido': data_alerta['Nombre_Apellido'], 
-            'edad_meses': data_alerta['Edad_meses'], 
-            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'], 
-            'riesgo': data_alerta['riesgo'], 
-            'fecha_alerta': datetime.date.today().isoformat(), 
-            'estado': estado, 
-            'sugerencias': json.dumps(data_alerta['sugerencias'])
+            'dni': data_alerta.get('DNI'),
+            'nombre_apellido': data_alerta.get('Nombre_Apellido'),
+            'edad_meses': data_alerta.get('Edad_meses'),
+            'hemoglobina_g_dl': data_alerta.get('Hemoglobina_g_dL') or data_alerta.get('Hemoglobina_g_dl') or data_alerta.get('Hemoglobina') or None,
+            'riesgo': data_alerta.get('riesgo'),
+            'fecha_alerta': datetime.date.today().isoformat(),
+            'estado': estado,
+            'sugerencias': json.dumps(data_alerta.get('sugerencias', []))
         }
         
         supabase.table(SUPABASE_TABLE).insert(data).execute()
@@ -531,6 +531,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
