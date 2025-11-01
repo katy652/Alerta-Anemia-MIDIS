@@ -296,23 +296,21 @@ def obtener_alertas_pendientes_o_seguimiento():
 
 @st.cache_resource
 def get_supabase_client():
+    """Inicializa y retorna el cliente de Supabase (Lectura segura de secretos PLANA)."""
+    # Intentamos leer las variables planas (SUPABASE_URL, SUPABASE_KEY)
     try:
-        # 👇 Usa la ruta completa a tu archivo secrets.toml
-        secrets = toml.load(r"D:\carrera de ciencia de base de datos\ciclo 6\proyecto productivo\ciclo A\secrets.toml")
-        url = secrets["SUPABASE_URL"]
-        key = secrets["SUPABASE_KEY"]
-        client: Client = create_client(url, key)
-        st.success("✅ Conexión exitosa con Supabase.")
-        return client
-    except Exception as e:
-        st.error(f"❌ Error cargando Supabase: {e}")
+        url = st.secrets["SUPABASE_URL"] 
+        key = st.secrets["SUPABASE_KEY"] 
+    except KeyError:
+        st.error("❌ ERROR: Claves de Supabase (SUPABASE_URL/KEY) no configuradas en Streamlit Secrets. Funcionalidad DB Deshabilitada.")
         return None
 
-# Prueba rápida
-if __name__ == "__main__":
-    sb = get_supabase_client()
-    if sb:
-        print("Conexión OK")
+    try:
+        supabase: Client = create_client(url, key)
+        return supabase
+    except Exception as e:
+        st.error(f"❌ Error al inicializar Supabase: {e}")
+        return None
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
@@ -534,6 +532,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
