@@ -31,10 +31,9 @@ MODELO_URL = "https://drive.google.com/uc?export=download&id=1vij71K2DtTHEc1seEO
 COLUMNS_FILENAME = "modelo_columns.joblib"
 
 # ===================================================================
-# CONFIGURACIÓN DE SUPABASE (simplificada, toda la lógica en get_supabase_client)
+# CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
 
-# Usaremos la variable SUPABASE_TABLE en las funciones de la DB
 SUPABASE_TABLE = "alertas"
 
 # Lógica de conexión inicial/comprobación (opcional, para feedback inmediato en UI)
@@ -46,10 +45,51 @@ try:
         create_client(SUPABASE_URL_CHECK, SUPABASE_KEY_CHECK) # Solo verifica la conexión
         st.success("✅ Verificación inicial de credenciales (st.secrets) exitosa.")
     else:
-        st.warning("⚠️ Credenciales de Supabase (st.secrets) no encontradas. Revisando fallback...")
+        st.warning("⚠️ Credenciales de Supabase (st.secrets) no encontradas. Usando lógica de fallback.")
 except Exception as e:
     st.error(f"❌ Error en la verificación inicial de Supabase: {e}")
 
+
+# ===================================================================
+# GESTIÓN DE LA BASE DE DATOS (SUPABASE) - FUNCIÓN DE CONEXIÓN ROBUSTA
+# ===================================================================
+
+@st.cache_resource
+def get_supabase_client():
+    """
+    Inicializa y retorna el cliente de Supabase.
+    1. Intenta leer de st.secrets (Nube).
+    2. Si falla (local), usa valores de fallback codificados.
+    """
+
+    # ⚠️ REEMPLAZAR ESTOS VALORES CON TUS CREDENCIALES REALES DE SUPABASE PARA PRUEBAS LOCALES.
+    #    Tu URL es: https://kwsuszkolbejvliniqgd.supabase.co
+    # -------------------------------------------------------------------------
+    FALLBACK_URL = "https://kwsuszkolbejvliniqgd.supabase.co"
+    FALLBACK_KEY = "TU_CLAVE_API_ANON_AQUI"
+    # -------------------------------------------------------------------------
+
+    url, key = None, None
+
+    # Intento 1: Leer las variables seguras de Streamlit (Prioritario en producción)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+    except KeyError:
+        # Intento 2: Usar el Fallback (para depuración local si st.secrets falla)
+        url = FALLBACK_URL
+        key = FALLBACK_KEY
+        if key == "TU_CLAVE_API_ANON_AQUI":
+            st.error("❌ ERROR: La clave FALLBACK de Supabase no fue reemplazada. Funcionalidad DB Deshabilitada.")
+            return None
+        # st.warning("⚠️ Usando credenciales FALLBACK codificadas (para depuración local).") # Descomentar para ver el aviso
+
+    try:
+        supabase: Client = create_client(url, key)
+        return supabase
+    except Exception as e:
+        st.error(f"❌ Error al inicializar Supabase con las credenciales obtenidas: {e}")
+        return None
 
 # ===================================================================
 # CARGA DE ACTIVOS DE MACHINE LEARNING
@@ -70,7 +110,7 @@ def load_model_components():
     except FileNotFoundError:
         st.error(f"❌ No se encontró '{COLUMNS_FILENAME}'. Súbelo a tu proyecto o GitHub.")
         return None, None
-    except Exception as e: # Agregado para manejo general de errores
+    except Exception as e:
         st.error(f"❌ ERROR al cargar las columnas: {e}")
         return None, None
 
@@ -93,12 +133,12 @@ def load_model_components():
             response.raise_for_status()
             with open(MODEL_FILENAME, "wb") as f:
                 f.write(response.content)
-            
+
             # Recargar desde el archivo recién descargado
             model = joblib.load(MODEL_FILENAME)
             st.success("✅ Modelo de IA descargado y cargado exitosamente.")
             return model, model_columns
-            
+
         except Exception as e:
             st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande: {e}")
             st.warning("⚠️ **La predicción de IA está temporalmente deshabilitada.** (El enlace de Drive no funciona o hay un error de red)")
@@ -112,94 +152,6 @@ MODELO_ML, MODELO_COLUMNS = load_model_components()
 RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 
 
-# ==============================================================================
-# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE)
-# ==============================================================================
-
-@st.cache_resource
-def get_supabase_client():
-    """
-    Inicializa y retorna el cliente de Supabase.
-    1. Intenta leer de st.secrets (Nube).
-    2. Si falla (local), usa valores de fallback codificados.
-    """
-
-    # ⚠️ REEMPLAZAR ESTOS VALORES CON TUS CREDENCIALES REALES DE SUPABASE PARA PRUEBAS LOCALES.
-    # -------------------------------------------------------------------------
-    FALLBACK_URL = "https://kwsuszkolbejvliniqgd.supabase.co" 
-    FALLBACK_KEY = "TU_CLAVE_API_ANON_AQUI"                    
-    # -------------------------------------------------------------------------
-
-    url, key = None, None
-
-    # Intento 1: Leer las variables seguras de Streamlit (Prioritario en producción)
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-    except KeyError:
-        # Intento 2: Usar el Fallback (para depuración local si st.secrets falla)
-        url = FALLBACK_URL
-        key = FALLBACK_KEY
-        if key == "TU_CLAVE_API_ANON_AQUI":
-            st.error("❌ ERROR: Clave FALLBACK no reemplazada. Funcionalidad DB Deshabilitada.")
-            return None
-        # st.warning("⚠️ Usando credenciales FALLBACK codificadas (para depuración local).") # Descomentar para ver el aviso
-
-    try:
-        supabase: Client = create_client(url, key)
-        return supabase
-    except Exception as e:
-        st.error(f"❌ Error al inicializar Supabase con las credenciales obtenidas: {e}")
-        return None
-
-
-def registrar_alerta_db(data_alerta):
-    supabase = get_supabase_client()
-    if not supabase:
-        st.error("No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
-        return False
-    try:
-        if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
-        elif data_alerta['riesgo'].startswith("ALTO RIESGO") and not data_alerta['riesgo'].startswith("ALTO RIESGO (Alerta Clínica"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
-        else: estado = 'REGISTRADO'
-
-        data = {
-            'dni': data_alerta['DNI'],
-            'nombre_apellido': data_alerta['Nombre_Apellido'],
-            'edad_meses': data_alerta['Edad_meses'],
-            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'],
-            'riesgo': data_alerta['riesgo'],
-            'fecha_alerta': datetime.date.today().isoformat(),
-            'estado': estado,
-            'sugerencias': json.dumps(data_alerta['sugerencias'])
-        }
-
-        # La RLS (Row Level Security) podría estar bloqueando la inserción.
-        # Asegúrate de que la clave 'anon public' tenga permisos de INSERCIÓN.
-        response = supabase.table(SUPABASE_TABLE).insert(data).execute()
-        
-        # Validación de respuesta de Supabase (puede lanzar un error si RLS está activa)
-        if hasattr(response, 'error') and response.error:
-             raise Exception(response.error.message)
-
-        # Limpiar cachés de las tablas para ver los nuevos datos
-        if 'obtener_alertas_pendientes_o_seguimiento' in st.session_state:
-            obtener_alertas_pendientes_o_seguimiento.clear()
-        if 'obtener_todos_los_registros' in st.session_state:
-            obtener_todos_los_registros.clear()
-
-        if estado.startswith('PENDIENTE'):
-            st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
-        else:
-            st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
-        return True
-    except Exception as e:
-        st.error(f"❌ Error al registrar en Supabase. Posiblemente por RLS. Mensaje: {e}")
-        return False
-
-# ... (El resto de las funciones de la DB como safe_json_to_text_display, fetch_data, obtener_alertas_pendientes_o_seguimiento, obtener_todos_los_registros (que falta definir), actualizar_estado_alerta (que falta definir) se mantienen igual) ...
-
-# Funciones de Lógica de Negocio y Predicción (Mantengo esta sección como la definiste)
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
@@ -275,7 +227,11 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
         sugerencias_limpias.append(unidecode.unidecode(sug_stripped))
     return sugerencias_limpias
 
-# Funciones de la DB (Continuación)
+
+# ==============================================================================
+# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE) - FUNCIONES DE LECTURA/ESCRITURA
+# ==============================================================================
+
 def safe_json_to_text_display(json_str):
     if isinstance(json_str, str) and json_str.strip() and json_str.startswith('['):
         try:
@@ -289,48 +245,97 @@ def safe_json_to_text_display(json_str):
             return "**ERROR: Datos de sugerencia corruptos.**"
     return "No hay sugerencias registradas."
 
-def fetch_data(query_condition=None):
-    supabase = get_supabase_client()
-    if not supabase: return pd.DataFrame()
-    try:
-        query = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True)
-        if query_condition: query = query.or_(query_condition)
-        response = query.execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Error al consultar datos en Supabase: {e}")
-        return pd.DataFrame()
+def rename_and_process_df(response_data):
+    """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
+    if response_data:
+        df = pd.DataFrame(response_data)
+        # Asegúrate de que los nombres de columna coincidan exactamente con la DB
+        df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+        df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
+        return df
+    return pd.DataFrame()
 
 @st.cache_data
 def obtener_alertas_pendientes_o_seguimiento():
-    query_condition = "estado.ilike.PENDIENTE%,estado.eq.EN SEGUIMIENTO"
-    df = fetch_data(query_condition=query_condition)
-    if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
-    return df
+    """Obtiene registros marcados para monitoreo activo."""
+    supabase = get_supabase_client()
+    if not supabase: return pd.DataFrame()
+
+    try:
+        # Usa .in_ para filtrar por una lista de estados, solucionando el error 'alertas.id'
+        response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).order('id', desc=True).execute()
+        return rename_and_process_df(response.data)
+
+    except Exception as e:
+        st.error(f"❌ Error al consultar alertas de monitoreo: {e}")
+        return pd.DataFrame()
 
 @st.cache_data
 def obtener_todos_los_registros():
-    df = fetch_data(query_condition=None)
-    if not df.empty: df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
-    return df
+    """Obtiene todo el historial de registros."""
+    supabase = get_supabase_client()
+    if not supabase: return pd.DataFrame()
 
-# Función auxiliar que faltaba para la vista de monitoreo
+    try:
+        # Consulta simple para todo el historial
+        response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True).execute()
+        return rename_and_process_df(response.data)
+
+    except Exception as e:
+        st.error(f"❌ Error al consultar el historial de registros: {e}")
+        return pd.DataFrame()
+
 def actualizar_estado_alerta(alerta_id, nuevo_estado):
+    """Actualiza el estado de una alerta por su ID."""
     supabase = get_supabase_client()
     if not supabase: return False
     try:
         supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
+        # Limpiar cachés
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
         return True
     except Exception as e:
         st.error(f"❌ Error al actualizar estado en Supabase: {e}")
         return False
-        
+
+def registrar_alerta_db(data_alerta):
+    """Registra un nuevo caso en la base de datos."""
+    supabase = get_supabase_client()
+    if not supabase:
+        st.error("No se pudo registrar: La conexión a Supabase falló o las credenciales no están configuradas.")
+        return False
+    try:
+        if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
+        elif data_alerta['riesgo'].startswith("ALTO RIESGO") and not data_alerta['riesgo'].startswith("ALTO RIESGO (Alerta Clínica"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
+        else: estado = 'REGISTRADO'
+
+        data = {
+            'dni': data_alerta['DNI'],
+            'nombre_apellido': data_alerta['Nombre_Apellido'],
+            'edad_meses': data_alerta['Edad_meses'],
+            'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'],
+            'riesgo': data_alerta['riesgo'],
+            'fecha_alerta': datetime.date.today().isoformat(),
+            'estado': estado,
+            'sugerencias': json.dumps(data_alerta['sugerencias'])
+        }
+
+        supabase.table(SUPABASE_TABLE).insert(data).execute()
+
+        # Limpiar cachés de las tablas para ver los nuevos datos
+        obtener_alertas_pendientes_o_seguimiento.clear()
+        obtener_todos_los_registros.clear()
+
+        if estado.startswith('PENDIENTE'):
+            st.info(f"✅ Caso registrado para **Monitoreo Activo** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **{estado}**.")
+        else:
+            st.info(f"✅ Caso registrado para **Control Estadístico** (Supabase). DNI: **{data_alerta['DNI']}**. Estado: **REGISTRADO**.")
+        return True
+    except Exception as e:
+        st.error(f"❌ Error al registrar en Supabase. Posiblemente por RLS. Mensaje: {e}")
+        return False
+
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
@@ -552,6 +557,7 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
 
 
 
