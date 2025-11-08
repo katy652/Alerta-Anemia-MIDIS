@@ -5,5 +5,5 @@ unidecode
 fpdf2
 joblib
 supabase
-scikit-learn
+scikit-learn==1.3.0
 gdown
