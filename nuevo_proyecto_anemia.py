@@ -20,8 +20,7 @@ st.set_page_config(
     page_title="Alerta de Riesgo de Anemia (IA)",
     page_icon="🩸",
     layout="wide",
-    # NOTA: Cambiamos el título en el código para que puedas verificar visualmente la versión
-    initial_sidebar_state="expanded" 
+    initial_sidebar_state="expanded"
 )
 
 # --- Constantes de Umbral ---
@@ -64,7 +63,6 @@ def get_supabase_client():
             return None
 
     try:
-        # La URL de Supabase de tu proyecto es 'https://kwsuszkolbejvliniqgd.supabase.co'
         supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
@@ -73,7 +71,6 @@ def get_supabase_client():
 
 # ===================================================================
 # CARGA DE ACTIVOS DE MACHINE LEARNING (SOLO CARGA LOCAL)
-# Soluciona los errores '60' de descarga
 # ===================================================================
 @st.cache_resource
 def load_model_components():
@@ -115,59 +112,64 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 
 def get_altitud_por_region(region):
     """Asigna una altitud promedio (msnm) a una región para fines de corrección de Hb (MSAL, INS)."""
-    # Altitudes promedio representativas basadas en datos del INEI/MINSA para el contexto de anemia.
+    # Altitudes promedio representativas
     altitudes = {
         # Regiones de Costa (0-1000 msnm)
-        "LIMA (Metropolitana y Provincia)": 160,
-        "CALLAO (Provincia Constitucional)": 30,
-        "PIURA": 80,
-        "LAMBAYEQUE": 100,
-        "LA LIBERTAD": 150,
-        "ICA": 300,
-        "TUMBES": 50,
+        "LIMA (Metropolitana y Provincia)": 160, "CALLAO (Provincia Constitucional)": 30,
+        "PIURA": 80, "LAMBAYEQUE": 100, "LA LIBERTAD": 150, "ICA": 300, "TUMBES": 50,
         "ÁNCASH (Costa)": 500, 
         
         # Regiones Andinas / Sierra (1500-4000 msnm)
-        "HUÁNUCO": 1900,
-        "JUNÍN (Andes)": 3200, # Huancayo
-        "CUSCO (Andes)": 3399, # Cusco Ciudad
-        "AYACUCHO": 2760,
-        "APURÍMAC": 2900,
-        "CAJAMARCA": 2750,
-        "AREQUIPA": 2335, # Arequipa Ciudad
-        "MOQUEGUA": 1410,
+        "HUÁNUCO": 1900, "JUNÍN (Andes)": 3200, "CUSCO (Andes)": 3399, "AYACUCHO": 2760,
+        "APURÍMAC": 2900, "CAJAMARCA": 2750, "AREQUIPA": 2335, "MOQUEGUA": 1410,
         "TACNA": 562,
         
         # Regiones Andinas Altas (3500+ msnm)
-        "PUNO (Sierra Alta)": 3820,
-        "HUANCAVELICA (Sierra Alta)": 3680,
-        "PASCO": 4330,
+        "PUNO (Sierra Alta)": 3820, "HUANCAVELICA (Sierra Alta)": 3680, "PASCO": 4330,
         
         # Regiones Amazónicas / Selva (0-1000 msnm)
-        "LORETO": 150,
-        "AMAZONAS": 400,
-        "SAN MARTÍN": 500,
-        "UCAYALI": 156,
+        "LORETO": 150, "AMAZONAS": 400, "SAN MARTÍN": 500, "UCAYALI": 156,
         "MADRE DE DIOS": 250,
         
-        "OTRO / NO ESPECIFICADO": 1500 # Valor por defecto seguro
+        "OTRO / NO ESPECIFICADO": 1500
     }
     return altitudes.get(region, 1500)
 
+def get_clima_por_region(region):
+    """Asigna el clima predominante a la región seleccionada, usando las 4 categorías del modelo."""
+    clima_map = {
+        # Clima Cálido Seco (Costa y Zonas Áridas)
+        "LIMA (Metropolitana y Provincia)": 'Cálido seco', "CALLAO (Provincia Constitucional)": 'Cálido seco',
+        "PIURA": 'Cálido seco', "LAMBAYEQUE": 'Cálido seco', "LA LIBERTAD": 'Cálido seco', 
+        "ICA": 'Cálido seco', "TUMBES": 'Cálido seco', "ÁNCASH (Costa)": 'Cálido seco',
+        "TACNA": 'Cálido seco',
+        
+        # Clima Frío Andino (Sierra Alta > 3000 msnm)
+        "JUNÍN (Andes)": 'Frío andino', "PUNO (Sierra Alta)": 'Frío andino',
+        "HUANCAVELICA (Sierra Alta)": 'Frío andino', "PASCO": 'Frío andino',
+        
+        # Clima Templado Andino (Sierra Media 1500-3000 msnm)
+        "HUÁNUCO": 'Templado andino', "CUSCO (Andes)": 'Templado andino', 
+        "AYACUCHO": 'Templado andino', "APURÍMAC": 'Templado andino', 
+        "CAJAMARCA": 'Templado andino', "AREQUIPA": 'Templado andino', 
+        "MOQUEGUA": 'Templado andino',
+        
+        # Clima Otro (Selva / Cálido Húmedo)
+        "LORETO": 'Otro', "AMAZONAS": 'Otro', "SAN MARTÍN": 'Otro', 
+        "UCAYALI": 'Otro', "MADRE DE DIOS": 'Otro',
+        
+        "OTRO / NO ESPECIFICADO": 'Otro' 
+    }
+    return clima_map.get(region, 'Otro')
+
 def corregir_hemoglobina_por_altitud(hemoglobina_medida, altitud_m):
     """Aplica la corrección de Hemoglobina según la altitud (OMS, 2011)."""
-    if altitud_m < 1000:
-        correccion = 0.0
-    elif altitud_m < 2000:
-        correccion = 0.2
-    elif altitud_m < 3000:
-        correccion = 0.5
-    elif altitud_m < 4000:
-        correccion = 0.8
-    elif altitud_m < 5000:
-        correccion = 1.3
-    else: # >= 5000
-        correccion = 1.9
+    if altitud_m < 1000: correccion = 0.0
+    elif altitud_m < 2000: correccion = 0.2
+    elif altitud_m < 3000: correccion = 0.5
+    elif altitud_m < 4000: correccion = 0.8
+    elif altitud_m < 5000: correccion = 1.3
+    else: correccion = 1.9
         
     return hemoglobina_medida - correccion, correccion
 
@@ -286,7 +288,7 @@ def rename_and_process_df(response_data):
     """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
     if response_data:
         df = pd.DataFrame(response_data)
-        # CORRECCIÓN: Se eliminó 'id' del mapeo de columnas para evitar el error de Supabase
+        # CORRECCIÓN: Se eliminó 'id' del mapeo de columnas para evitar errores
         df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
         
         df['ID_GESTION'] = df['DNI'].astype(str) + '_' + df['Fecha Alerta'].astype(str)
@@ -302,7 +304,6 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # CORRECCIÓN: Consulta sin dependencia de 'id' para evitar el error 'column alertas.id does not exist'
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -317,7 +318,6 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        # CORRECCIÓN: Consulta sin dependencia de 'id'
         response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -448,8 +448,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # ==============================================================================
 
 def vista_prediccion():
-    # El título indica la nueva versión y la función de automatización
-    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.3 Automatizada por Región)")
+    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.4 Altitud y Clima Automatizados)")
     st.markdown("---")
 
     if MODELO_COLUMNS is None:
@@ -483,16 +482,25 @@ def vista_prediccion():
         col_h, col_e, col_r = st.columns(3)
         with col_h: hemoglobina = st.number_input("Hemoglobina (g/dL) - CRÍTICO", min_value=5.0, max_value=18.0, value=10.5, step=0.1)
         with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36)
-        with col_r: region = st.selectbox("Región (Define la Altitud)", options=REGIONES_PERU)
+        with col_r: region = st.selectbox("Región (Define Altitud y Clima)", options=REGIONES_PERU)
         
-        # 🛑 Altitud se calcula automáticamente aquí, eliminando la entrada manual
+        # 🛑 Altitud se calcula automáticamente
         altitud_calculada = get_altitud_por_region(region)
         st.info(f"📍 Altitud asignada automáticamente para **{region}**: **{altitud_calculada} msnm** (Usada para la corrección de Hemoglobina).")
         st.markdown("---")
         
         st.subheader("2. Factores Socioeconómicos y Contextuales")
+        
+        # 🛑 Clima se calcula automáticamente
+        clima_calculado = get_clima_por_region(region)
+        clima = clima_calculado # Asignamos el valor calculado a la variable 'clima'
+        
         col_c, col_ed = st.columns(2)
-        with col_c: clima = st.selectbox("Clima Predominante", options=['Templado andino', 'Frío andino', 'Cálido seco', 'Otro'])
+        with col_c: 
+            st.markdown(f"**Clima Predominante (Automático):**")
+            st.markdown(f"*{clima}*")
+            st.info(f"El clima asignado automáticamente para **{region}** es: **{clima}**.")
+            
         with col_ed: educacion_madre = st.selectbox("Nivel Educ. Madre", options=["Secundaria", "Primaria", "Superior Técnica", "Universitaria", "Inicial", "Sin Nivel"])
         
         col_hijos, col_ing, col_area, col_s = st.columns(4)
@@ -517,7 +525,7 @@ def vista_prediccion():
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
             
-            # Altitud es el valor calculado
+            # Altitud y Clima usan los valores calculados/asignados
             data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud_calculada, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
 
             # Clasificación Clínica con ajuste por altitud automática
@@ -651,7 +659,7 @@ opcion_seleccionada = st.sidebar.radio(
     ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("App Híbrida v2.3 (Clínica + IA)")
+st.sidebar.info("App Híbrida v2.4 (Clínica + IA)")
 
 if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
