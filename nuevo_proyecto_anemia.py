@@ -10,7 +10,7 @@ import requests
 import io
 import json
 import re
-import os # Importación añadida
+import os
 
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
@@ -28,11 +28,9 @@ UMBRAL_SEVERA = 7.0
 UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
-# --- ID Y NOMBRES DE ARCHIVO DEL MODELO GRANDE ---
-# ID extraído del enlace: https://drive.google.com/file/d/1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK/view?usp=sharing
-MODEL_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+# --- Nombres de Archivo ---
 MODEL_FILENAME = "modelo_anemia.joblib"
-COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo DEBE estar presente.
+COLUMNS_FILENAME = "modelo_columns.joblib" 
 
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
@@ -40,26 +38,16 @@ COLUMNS_FILENAME = "modelo_columns.joblib" # Este archivo DEBE estar presente.
 
 SUPABASE_TABLE = "alertas"
 
-try:
-    SUPABASE_URL_CHECK = st.secrets.get("SUPABASE_URL")
-    SUPABASE_KEY_CHECK = st.secrets.get("SUPABASE_KEY")
-    if SUPABASE_URL_CHECK and SUPABASE_KEY_CHECK:
-        create_client(SUPABASE_URL_CHECK, SUPABASE_KEY_CHECK)
-        # st.success("✅ Verificación inicial de credenciales (st.secrets) exitosa.") # Se comenta para evitar duplicidad
-except Exception as e:
-    pass # Error de verificación no bloquea la app
-
 # ===================================================================
 # GESTIÓN DE LA BASE DE DATOS (SUPABASE) - FUNCIÓN DE CONEXIÓN ROBUSTA
 # ===================================================================
 @st.cache_resource
 def get_supabase_client():
-    """
-    Inicializa y retorna el cliente de Supabase.
-    """
-    # ⚠️ REEMPLAZAR ESTOS VALORES CON TUS CREDENCIALES REALES
-    FALLBACK_URL = "https://kwsuszkolbejvliniqgd.supabase.co"
-    FALLBACK_KEY = "TU_CLAVE_API_ANON_AQUI" # <-- REEMPLAZAR AQUÍ
+    """Inicializa y retorna el cliente de Supabase."""
+    
+    # URL obtenida de la configuración de tu proyecto
+    FALLBACK_URL = "https://kwsuszkolbejvliniqgd.supabase.co" 
+    FALLBACK_KEY = "TU_CLAVE_API_ANON_AQUI" # <-- REEMPLAZAR AQUÍ CON TU CLAVE REAL
 
     url, key = None, None
 
@@ -72,7 +60,6 @@ def get_supabase_client():
         if key == "TU_CLAVE_API_ANON_AQUI":
             st.error("❌ ERROR: La clave FALLBACK de Supabase no fue reemplazada. Funcionalidad DB Deshabilitada.")
             return None
-        # st.warning("⚠️ Usando credenciales FALLBACK codificadas.")
 
     try:
         supabase: Client = create_client(url, key)
@@ -82,46 +69,11 @@ def get_supabase_client():
         return None
 
 # ===================================================================
-# FUNCIONES DE UTILIDAD PARA DESCARGA ROBUSTA DE GOOGLE DRIVE
-# ===================================================================
-
-def get_confirm_token(response):
-    """Extrae el token de confirmación de las cookies para archivos grandes."""
-    for key, value in response.cookies.items():
-        if key.startswith('download_warning'):
-            return value
-    return None
-
-def download_file_from_google_drive(id, destination):
-    """Descarga robusta, manejando redireccionamiento por advertencia de archivo grande."""
-    URL = "https://docs.google.com/uc?export=download"
-    session = requests.Session()
-
-    response = session.get(URL, params={'id': id}, stream=True)
-    token = get_confirm_token(response)
-
-    if token:
-        params = {'id': id, 'confirm': token}
-        response = session.get(URL, params=params, stream=True)
-
-    # Escribir el contenido al archivo de destino
-    chunk_size = 32768
-    try:
-        with open(destination, "wb") as f:
-            for chunk in response.iter_content(chunk_size):
-                if chunk:
-                    f.write(chunk)
-        return True
-    except Exception as e:
-        st.error(f"Fallo al escribir el archivo: {e}")
-        return False
-
-# ===================================================================
-# CARGA DE ACTIVOS DE MACHINE LEARNING (Actualizada y Robusta)
+# CARGA DE ACTIVOS DE MACHINE LEARNING (SOLO CARGA LOCAL)
 # ===================================================================
 @st.cache_resource
 def load_model_components():
-    """Carga los activos de ML, intentando descargar de forma robusta si es necesario."""
+    """Carga los activos de ML directamente desde archivos locales."""
     modelo = None
 
     # 1️⃣ Cargar columnas
@@ -129,36 +81,25 @@ def load_model_components():
         model_columns = joblib.load(COLUMNS_FILENAME)
         st.success("✅ Activos de columna cargados exitosamente.")
     except FileNotFoundError:
-        st.error(f"❌ No se encontró '{COLUMNS_FILENAME}'. Súbelo a tu proyecto. ¡CRÍTICO!")
+        st.error(f"❌ CRÍTICO: No se encontró el archivo '{COLUMNS_FILENAME}'. La IA está deshabilitada.")
         return None, None
     except Exception as e:
         st.error(f"❌ ERROR al cargar las columnas: {e}")
         return None, None
 
-    # 2️⃣ Descargar/Cargar modelo
-    if os.path.exists(MODEL_FILENAME):
-        try:
-            modelo = joblib.load(MODEL_FILENAME)
-            st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
-        except Exception as e:
-            st.error(f"❌ ERROR al cargar el modelo local: {e}. El archivo podría estar corrupto.")
-
-    if modelo is None:
-        try:
-            st.info("Intentando descargar el modelo de Machine Learning de forma robusta desde Google Drive...")
-            if download_file_from_google_drive(MODEL_ID, MODEL_FILENAME):
-                model = joblib.load(MODEL_FILENAME)
-                st.success("✅ Modelo de IA descargado y cargado exitosamente.")
-                return model, model_columns
-            else:
-                 raise Exception("Fallo al finalizar la descarga robusta.")
-
-        except Exception as e:
-            st.error(f"❌ ERROR CRÍTICO al descargar/cargar el modelo grande. Detalle: {e}")
-            st.warning("⚠️ **La predicción de IA está temporalmente deshabilitada.** (Fallo en la descarga)")
-            return None, model_columns
-
-    return modelo, model_columns
+    # 2️⃣ Cargar modelo
+    # ESTO REQUIERE QUE EL ARCHIVO 'modelo_anemia.joblib' ESTÉ EN EL MISMO DIRECTORIO
+    try:
+        model = joblib.load(MODEL_FILENAME)
+        st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
+        return model, model_columns
+    except FileNotFoundError:
+        st.error(f"❌ CRÍTICO: No se encontró el archivo '{MODEL_FILENAME}'. La predicción de IA está deshabilitada.")
+        return None, model_columns
+    except Exception as e:
+        st.error(f"❌ ERROR al cargar el modelo local: {e}")
+        st.warning("⚠️ La predicción de IA está temporalmente deshabilitada.")
+        return None, model_columns
 
 
 MODELO_ML, MODELO_COLUMNS = load_model_components()
@@ -176,9 +117,9 @@ def limpiar_texto(texto):
 def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses):
     """Clasifica la anemia según la Hb y la edad (umbrales clínicos estándar)."""
     umbral = 0
-    if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0 # 6 meses a 5 años
-    elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5 # 5 años a 12 años
-    else: umbral = 12.0 # Resto
+    if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0
+    elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5
+    else: umbral = 12.0
     
     if hemoglobina_g_dL < UMBRAL_SEVERA: return "SEVERA", umbral
     elif hemoglobina_g_dL < UMBRAL_MODERADA: return "MODERADA", umbral
@@ -209,7 +150,7 @@ def predict_risk_ml(data_raw):
         X_df = preprocess_data_for_ml(data_raw, MODELO_COLUMNS)
         resultado_clase = MODELO_ML.predict(X_df)[0]
         prob_riesgo_array = MODELO_ML.predict_proba(X_df)[0]
-        prob_alto_riesgo = prob_riesgo_array[2] # Probabilidad de la clase '2' (Alto Riesgo)
+        prob_alto_riesgo = prob_riesgo_array[2] 
         resultado_texto = RISK_MAPPING.get(resultado_clase, "RIESGO INDEFINIDO")
         return prob_alto_riesgo, resultado_texto
     except Exception as e:
@@ -220,20 +161,17 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
     """Genera una lista de sugerencias basadas en el diagnóstico y factores de riesgo."""
     sugerencias_raw = []
     
-    # 1. Alertas Clínicas (Prioridad Alta)
     if gravedad_anemia == 'SEVERA':
         sugerencias_raw.append("🚨🚨 EMERGENCIA SEVERA | Traslado inmediato a Hospital/Centro de Salud de mayor complejidad y posible transfusión.")
     elif gravedad_anemia == 'MODERADA':
         sugerencias_raw.append("⚠️ ATENCIÓN INMEDIATA (Moderada) | Derivación urgente al Puesto de Salud más cercano para evaluación y dosis de ataque de suplemento.")
         
-    # 2. Alertas Híbridas (ML o Leve)
     if not gravedad_anemia in ['SEVERA', 'MODERADA']:
         if resultado_final.startswith("ALTO"):
             sugerencias_raw.append(f"⚠️ Alerta por Vulnerabilidad (IA) | Se requiere seguimiento clínico reforzado y monitoreo por el alto riesgo detectado.")
             if data['Hemoglobina_g_dL'] < UMBRAL_HEMOGLOBINA_ANEMIA:
                 sugerencias_raw.append("💊 Anemia Leve Confirmada | Priorizar la entrega y garantizar el consumo diario de suplementos de hierro.")
         
-        # 3. Factores de Riesgo Específicos
         if data['Altitud_m'] > 2500:
             sugerencias_raw.append("🍲 Riesgo Ambiental (Altura) | Priorizar alimentos con alta absorción de hierro.")
         if data['Ingreso_Familiar_Soles'] < 1000:
@@ -241,7 +179,6 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
         if data['Nivel_Educacion_Madre'] in ['Primaria', 'Inicial']:
             sugerencias_raw.append("📚 Capacitación | Ofrecer talleres nutricionales dirigidos a la madre/cuidador.")
             
-    # 4. Monitoreo General
     if resultado_final.startswith("MEDIO"):
         sugerencias_raw.append("✅ Monitoreo Reforzado | Mantener el seguimiento de rutina y reforzar la educación nutricional.")
     elif resultado_final.startswith("BAJO") and not sugerencias_raw:
@@ -250,18 +187,16 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
     if not sugerencias_raw:
         sugerencias_raw.append("✨ Recomendaciones Generales | Asegurar una dieta variada y el consumo de alimentos con vitamina C.")
         
-    # Limpieza final
     sugerencias_limpias = []
     for sug in sugerencias_raw:
         sug_stripped = sug.replace('**', '').replace('*', '').replace('<b>', '').replace('</b>', '').strip()
         sugerencias_limpias.append(unidecode.unidecode(sug_stripped))
         
-    return list(set(sugerencias_limpias)) # Elimina duplicados
+    return list(set(sugerencias_limpias)) 
 
 
 # ==============================================================================
-# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE) - FUNCIONES DE LECTURA/ESCRITURA
-# (Funciones corregidas en la respuesta anterior)
+# 3. GESTIÓN DE LA BASE DE DATOS (SUPABASE) - FUNCIONES CORREGIDAS
 # ==============================================================================
 
 def safe_json_to_text_display(json_str):
@@ -280,9 +215,15 @@ def safe_json_to_text_display(json_str):
 def rename_and_process_df(response_data):
     """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
     if response_data:
-        df = pd.DataFrame(response.data) # Usar response.data
-        # Asegúrate de que los nombres de columna coincidan exactamente con la DB
-        df = df.rename(columns={'id': 'ID', 'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+        df = pd.DataFrame(response_data)
+        # 🛑 CORRECCIÓN: Se elimina 'id' de la lista de renombrado
+        df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+        
+        # Agregamos una columna visible para el ID de actualización, usando el DNI
+        # Ya que la tabla no tiene 'id' auto-incremental, usamos DNI y Fecha como identificador único
+        # NOTA: En la realidad, se recomienda añadir un ID único a la tabla
+        df['ID_GESTION'] = df['DNI'].astype(str) + '_' + df['Fecha Alerta'].astype(str)
+        
         df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
         return df
     return pd.DataFrame()
@@ -294,12 +235,12 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # Consulta corregida para evitar el error 'alertas.id'
-        response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).order('id', desc=True).execute()
+        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' y se usa 'fecha_alerta'
+        response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        st.error(f"❌ Error al consultar alertas de monitoreo: {e}")
+        st.error(f"❌ Error al consultar alertas de monitoreo: {e}") 
         return pd.DataFrame()
 
 @st.cache_data
@@ -309,19 +250,24 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).order('id', desc=True).execute()
+        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' y se usa 'fecha_alerta'
+        response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
         st.error(f"❌ Error al consultar el historial de registros: {e}")
         return pd.DataFrame()
 
-def actualizar_estado_alerta(alerta_id, nuevo_estado):
-    """Actualiza el estado de una alerta por su ID."""
+def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
+    """
+    Actualiza el estado de una alerta usando DNI y Fecha de Alerta como clave compuesta.
+    NOTA: Esto asume que no hay dos registros para el mismo DNI en el mismo día.
+    """
     supabase = get_supabase_client()
     if not supabase: return False
     try:
-        supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('id', alerta_id).execute()
+        # 🛑 CORRECCIÓN: Se usa DNI y fecha para actualizar el registro.
+        supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('dni', dni).eq('fecha_alerta', fecha_alerta).execute()
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
         return True
@@ -336,10 +282,12 @@ def registrar_alerta_db(data_alerta):
         st.error("No se pudo registrar: La conexión a Supabase falló.")
         return False
     try:
-        # Lógica para determinar el estado de registro inicial
+        
         if 'SEVERA' in data_alerta['gravedad_anemia'] or 'MODERADA' in data_alerta['gravedad_anemia']: estado = 'PENDIENTE (CLÍNICO URGENTE)'
         elif data_alerta['riesgo'].startswith("ALTO RIESGO") and not data_alerta['riesgo'].startswith("ALTO RIESGO (Alerta Clínica"): estado = 'PENDIENTE (IA/VULNERABILIDAD)'
         else: estado = 'REGISTRADO'
+        
+        fecha_registro = datetime.date.today().isoformat()
 
         data = {
             'dni': data_alerta['DNI'],
@@ -347,12 +295,12 @@ def registrar_alerta_db(data_alerta):
             'edad_meses': data_alerta['Edad_meses'],
             'hemoglobina_g_dL': data_alerta['Hemoglobina_g_dL'],
             'riesgo': data_alerta['riesgo'],
-            'fecha_alerta': datetime.date.today().isoformat(),
+            'fecha_alerta': fecha_registro,
             'estado': estado,
             'sugerencias': json.dumps(data_alerta['sugerencias'])
         }
 
-        response = supabase.table(SUPABASE_TABLE).insert(data).execute()
+        supabase.table(SUPABASE_TABLE).insert(data).execute()
 
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
@@ -485,7 +433,6 @@ def vista_prediccion():
         st.markdown("---")
 
         if predict_button:
-            # Validación simple
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
             
@@ -494,7 +441,6 @@ def vista_prediccion():
             gravedad_anemia, umbral_clinico = clasificar_anemia_clinica(hemoglobina, edad_meses)
             prob_alto_riesgo, resultado_ml = predict_risk_ml(data)
 
-            # Lógica para determinar el resultado final (Híbrido)
             if gravedad_anemia in ['SEVERA', 'MODERADA']:
                 resultado_final = f"ALTO RIESGO (Alerta Clínica - {gravedad_anemia})"
             elif resultado_ml.startswith("ALTO RIESGO"):
@@ -505,10 +451,8 @@ def vista_prediccion():
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia)
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales}
 
-            # Intenta registrar en DB
             registrar_alerta_db(alerta_data)
 
-            # Guardar resultados en session_state y recargar
             st.session_state.resultado = resultado_final
             st.session_state.prob_alto_riesgo = prob_alto_riesgo
             st.session_state.gravedad_anemia = gravedad_anemia
@@ -517,7 +461,6 @@ def vista_prediccion():
             st.session_state.prediction_done = True
             st.rerun()
 
-    # Mostrar resultados después de la predicción
     if st.session_state.prediction_done:
         resultado_final = st.session_state.resultado
         prob_alto_riesgo = st.session_state.prob_alto_riesgo
@@ -561,20 +504,29 @@ def vista_monitoreo():
         st.info(f"Se encontraron **{len(df_monitoreo)}** casos que requieren acción inmediata o seguimiento activo.")
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)"]
         
-        # Usar st.data_editor para permitir la actualización de estado
+        df_display = df_monitoreo[['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']].copy()
+        
         edited_df = st.data_editor(
-            df_monitoreo,
-            column_config={"Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True), "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large")},
+            df_display,
+            column_config={
+                "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True), 
+                "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
+                "ID_GESTION": None # Ocultar la clave compuesta
+            },
             hide_index=True, num_rows="fixed", use_container_width=True
         )
 
         if st.button("Guardar Cambios de Estado", type="primary"):
             cambios_guardados = 0
             for original_row in df_monitoreo.itertuples():
-                edited_row = edited_df[edited_df['ID'] == original_row.ID].iloc[0]
+                # Encontrar la fila editada usando la clave compuesta ID_GESTION
+                clave_compuesta = original_row.DNI + '_' + original_row._6 # Columna DNI + Fecha Alerta
+                edited_row = edited_df[edited_df['DNI'] == original_row.DNI].iloc[0]
+                
                 if original_row.Estado != edited_row['Estado']:
-                    if actualizar_estado_alerta(original_row.ID, edited_row['Estado']):
-                        st.success(f"Estado del DNI **{original_row.DNI}** (ID: {original_row.ID}) actualizado a **{edited_row['Estado']}**.")
+                    # Usamos DNI y Fecha Alerta para la actualización
+                    if actualizar_estado_alerta(original_row.DNI, original_row._6, edited_row['Estado']): 
+                        st.success(f"Estado del DNI **{original_row.DNI}** (Fecha: {original_row._6}) actualizado a **{edited_row['Estado']}**.")
                         cambios_guardados += 1
             if cambios_guardados > 0:
                 st.info(f"Se actualizaron {cambios_guardados} registros. Recargando la vista...")
@@ -586,7 +538,7 @@ def vista_monitoreo():
         df_reporte = obtener_todos_los_registros()
 
         if not df_reporte.empty:
-            st.dataframe(df_reporte, use_container_width=True, hide_index=True)
+            st.dataframe(df_reporte[['DNI', 'Nombre', 'Edad (meses)', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado']], use_container_width=True, hide_index=True)
             @st.cache_data
             def convert_df_to_csv(df): return df.to_csv(index=False).encode('utf-8')
             csv = convert_df_to_csv(df_reporte)
@@ -611,3 +563,4 @@ if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
+
