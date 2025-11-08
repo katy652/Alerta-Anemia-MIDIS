@@ -52,6 +52,7 @@ def get_supabase_client():
     url, key = None, None
 
     try:
+        # Intenta usar Streamlit Secrets (Recomendado para producción)
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
     except KeyError:
@@ -88,8 +89,6 @@ def load_model_components():
         return None, None
 
     # 2️⃣ Cargar modelo
-    # ESTO REQUIERE QUE EL ARCHIVO 'modelo_anemia.joblib' ESTÉ EN EL MISMO DIRECTORIO
-    # (Soluciona el error 60 de descarga)
     try:
         model = joblib.load(MODEL_FILENAME)
         st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
@@ -110,6 +109,47 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 # ==============================================================================
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
+
+def get_altitud_por_region(region):
+    """Asigna una altitud promedio (msnm) a una región para fines de corrección de Hb (MSAL, INS)."""
+    # Altitudes promedio representativas basadas en datos del INEI/MINSA para el contexto de anemia.
+    altitudes = {
+        # Regiones de Costa (0-1000 msnm)
+        "LIMA (Metropolitana y Provincia)": 160,
+        "CALLAO (Provincia Constitucional)": 30,
+        "PIURA": 80,
+        "LAMBAYEQUE": 100,
+        "LA LIBERTAD": 150,
+        "ICA": 300,
+        "TUMBES": 50,
+        "ÁNCASH (Costa)": 500, 
+        
+        # Regiones Andinas / Sierra (1500-4000 msnm)
+        "HUÁNUCO": 1900,
+        "JUNÍN (Andes)": 3200, # Huancayo
+        "CUSCO (Andes)": 3399, # Cusco Ciudad
+        "AYACUCHO": 2760,
+        "APURÍMAC": 2900,
+        "CAJAMARCA": 2750,
+        "AREQUIPA": 2335, # Arequipa Ciudad
+        "MOQUEGUA": 1410,
+        "TACNA": 562,
+        
+        # Regiones Andinas Altas (3500+ msnm)
+        "PUNO (Sierra Alta)": 3820,
+        "HUANCAVELICA (Sierra Alta)": 3680,
+        "PASCO": 4330,
+        
+        # Regiones Amazónicas / Selva (0-1000 msnm)
+        "LORETO": 150,
+        "AMAZONAS": 400,
+        "SAN MARTÍN": 500,
+        "UCAYALI": 156,
+        "MADRE DE DIOS": 250,
+        
+        "OTRO / NO ESPECIFICADO": 1500 # Valor por defecto seguro
+    }
+    return altitudes.get(region, 1500)
 
 def corregir_hemoglobina_por_altitud(hemoglobina_medida, altitud_m):
     """Aplica la corrección de Hemoglobina según la altitud (OMS, 2011)."""
@@ -243,10 +283,9 @@ def rename_and_process_df(response_data):
     """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
     if response_data:
         df = pd.DataFrame(response_data)
-        # 🛑 CORRECCIÓN: Se elimina 'id' de la lista de renombrado ya que no existe en la tabla 'alertas'
+        # CORRECCIÓN: Se eliminó 'id' del mapeo de columnas para evitar el error de Supabase
         df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
         
-        # Agregamos una columna visible para el ID de actualización, usando el DNI
         df['ID_GESTION'] = df['DNI'].astype(str) + '_' + df['Fecha Alerta'].astype(str)
         
         df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
@@ -260,7 +299,7 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' que causaba el error
+        # CORRECCIÓN: Consulta sin dependencia de 'id'
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -275,7 +314,7 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id'
+        # CORRECCIÓN: Consulta sin dependencia de 'id'
         response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -290,7 +329,7 @@ def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
     supabase = get_supabase_client()
     if not supabase: return False
     try:
-        # 🛑 CORRECCIÓN: Se usa DNI y fecha para actualizar el registro.
+        # Se usa DNI y fecha para actualizar el registro.
         supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('dni', dni).eq('fecha_alerta', fecha_alerta).execute()
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
@@ -383,7 +422,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     pdf.set_text_color(0, 0, 0)
 
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 5, f"Gravedad Clínica (Hb Corregida): {gravedad_anemia} ({data['Hemoglobina_g_dL']} g/dL)", 0, 1)
+    pdf.cell(0, 5, f"Gravedad Clinica (Hb Corregida): {gravedad_anemia} ({data['Hemoglobina_g_dL']} g/dL)", 0, 1)
     pdf.cell(0, 5, f"Prob. de Alto Riesgo por IA: {prob_riesgo:.2%}", 0, 1)
     pdf.ln(5)
 
@@ -406,7 +445,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # ==============================================================================
 
 def vista_prediccion():
-    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.2 Híbrida con Corrección de Altitud)")
+    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.3 Automatizada)")
     st.markdown("---")
 
     if MODELO_COLUMNS is None:
@@ -419,17 +458,11 @@ def vista_prediccion():
     # 🛑 LISTA FINAL DE REGIONES DE PERÚ (25 Regiones: 24 Dptos + Callao)
     REGIONES_PERU = [
         "LIMA (Metropolitana y Provincia)", "CALLAO (Provincia Constitucional)", 
-        # Costa Norte y Centro
-        "PIURA", "LAMBAYEQUE", "LA LIBERTAD", "ÁNCASH (Costa)", "ICA", 
-        # Sierra/Andes (Alta y Media)
-        "PUNO (Sierra Alta)", "HUANCAVELICA (Sierra Alta)", "CUSCO (Andes)", 
-        "JUNÍN (Andes)", "AYACUCHO", "APURÍMAC", "HUÁNUCO", "PASCO", 
-        "CAJAMARCA", 
-        # Sur (Mayormente Sierra y Costa)
-        "AREQUIPA", "MOQUEGUA", "TACNA", 
-        # Selva (Amazonía)
+        "PIURA", "LAMBAYEQUE", "LA LIBERTAD", "ICA", "TUMBES", "ÁNCASH (Costa)",
+        "HUÁNUCO", "JUNÍN (Andes)", "CUSCO (Andes)", "AYACUCHO", "APURÍMAC", 
+        "CAJAMARCA", "AREQUIPA", "MOQUEGUA", "TACNA", 
+        "PUNO (Sierra Alta)", "HUANCAVELICA (Sierra Alta)", "PASCO",
         "LORETO", "AMAZONAS", "SAN MARTÍN", "UCAYALI", "MADRE DE DIOS", 
-        # Otros
         "OTRO / NO ESPECIFICADO"
     ]
 
@@ -443,16 +476,18 @@ def vista_prediccion():
         st.markdown("---")
         
         st.subheader("1. Factores Clínicos y Demográficos Clave")
-        col_h, col_e, col_a = st.columns(3)
+        col_h, col_e, col_r = st.columns(3)
         with col_h: hemoglobina = st.number_input("Hemoglobina (g/dL) - CRÍTICO", min_value=5.0, max_value=18.0, value=10.5, step=0.1)
         with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36)
-        # ⚠️ Nota: El Altitud_m es crucial para la corrección de Hb
-        with col_a: altitud = st.number_input("Altitud (metros s.n.m.) - CLAVE", min_value=0, max_value=5000, value=1500, step=10) 
+        with col_r: region = st.selectbox("Región (Define la Altitud)", options=REGIONES_PERU)
+        
+        # 🛑 Altitud se calcula automáticamente
+        altitud_calculada = get_altitud_por_region(region)
+        st.info(f"📍 Altitud asignada automáticamente para **{region}**: **{altitud_calculada} msnm** (Usada para la corrección de Hemoglobina).")
         st.markdown("---")
         
         st.subheader("2. Factores Socioeconómicos y Contextuales")
-        col_r, col_c, col_ed = st.columns(3)
-        with col_r: region = st.selectbox("Región", options=REGIONES_PERU) # 🛑 Uso de lista completa de regiones
+        col_c, col_ed = st.columns(2)
         with col_c: clima = st.selectbox("Clima Predominante", options=['Templado andino', 'Frío andino', 'Cálido seco', 'Otro'])
         with col_ed: educacion_madre = st.selectbox("Nivel Educ. Madre", options=["Secundaria", "Primaria", "Superior Técnica", "Universitaria", "Inicial", "Sin Nivel"])
         
@@ -478,10 +513,11 @@ def vista_prediccion():
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
             
-            data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
+            # Altitud es el valor calculado
+            data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud_calculada, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
 
-            # 🛑 Llamada a la función corregida: Clasificación Clínica con ajuste por altitud
-            gravedad_anemia, umbral_clinico, hb_corregida, correccion_alt = clasificar_anemia_clinica(hemoglobina, edad_meses, altitud)
+            # Clasificación Clínica con ajuste por altitud automática
+            gravedad_anemia, umbral_clinico, hb_corregida, correccion_alt = clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_calculada)
             prob_alto_riesgo, resultado_ml = predict_risk_ml(data)
 
             if gravedad_anemia in ['SEVERA', 'MODERADA']:
@@ -572,12 +608,13 @@ def vista_monitoreo():
         if st.button("Guardar Cambios de Estado", type="primary"):
             cambios_guardados = 0
             for original_row in df_monitoreo.itertuples():
-                # Encontrar la fila editada usando el DNI (asumiendo que DNI es único en el dataframe filtrado)
-                edited_row = edited_df[edited_df['DNI'] == original_row.DNI].iloc[0]
+                # Encontrar la fila editada usando el DNI y la Fecha (clave compuesta)
+                # La fecha de alerta está en el índice 6 de la tupla generada por .itertuples()
+                edited_row_mask = (edited_df['DNI'] == original_row.DNI)
+                if not edited_row_mask.any(): continue # Salta si la fila no se encuentra (no debería pasar)
+                edited_row = edited_df[edited_row_mask].iloc[0]
                 
                 if original_row.Estado != edited_row['Estado']:
-                    # Usamos DNI y Fecha Alerta para la actualización
-                    # La fecha de alerta está en el índice 6 de la tupla de nombres generados por .itertuples()
                     if actualizar_estado_alerta(original_row.DNI, original_row._6, edited_row['Estado']): 
                         st.success(f"Estado del DNI **{original_row.DNI}** (Fecha: {original_row._6}) actualizado a **{edited_row['Estado']}**.")
                         cambios_guardados += 1
@@ -610,7 +647,7 @@ opcion_seleccionada = st.sidebar.radio(
     ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("App Híbrida v2.2 (Clínica + IA)")
+st.sidebar.info("App Híbrida v2.3 (Clínica + IA)")
 
 if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
