@@ -89,6 +89,7 @@ def load_model_components():
 
     # 2️⃣ Cargar modelo
     # ESTO REQUIERE QUE EL ARCHIVO 'modelo_anemia.joblib' ESTÉ EN EL MISMO DIRECTORIO
+    # (Soluciona el error 60 de descarga)
     try:
         model = joblib.load(MODEL_FILENAME)
         st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
@@ -110,21 +111,47 @@ RISK_MAPPING = {0: "BAJO RIESGO", 1: "MEDIO RIESGO", 2: "ALTO RIESGO"}
 # 2. LÓGICA DE NEGOCIO Y PREDICCIÓN (Funciones)
 # ==============================================================================
 
+def corregir_hemoglobina_por_altitud(hemoglobina_medida, altitud_m):
+    """Aplica la corrección de Hemoglobina según la altitud (OMS, 2011)."""
+    if altitud_m < 1000:
+        correccion = 0.0
+    elif altitud_m < 2000:
+        correccion = 0.2
+    elif altitud_m < 3000:
+        correccion = 0.5
+    elif altitud_m < 4000:
+        correccion = 0.8
+    elif altitud_m < 5000:
+        correccion = 1.3
+    else: # >= 5000
+        correccion = 1.9
+        
+    return hemoglobina_medida - correccion, correccion
+
 def limpiar_texto(texto):
     if pd.isna(texto): return 'desconocido'
     return unidecode.unidecode(str(texto).strip().lower())
 
-def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses):
-    """Clasifica la anemia según la Hb y la edad (umbrales clínicos estándar)."""
-    umbral = 0
-    if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0
-    elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5
-    else: umbral = 12.0
+def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses, altitud_m):
+    """
+    Clasifica la anemia según la Hb, edad (umbrales clínicos estándar) y altitud.
+    Retorna la gravedad clínica, el umbral base, la Hb corregida y la corrección aplicada.
+    """
     
-    if hemoglobina_g_dL < UMBRAL_SEVERA: return "SEVERA", umbral
-    elif hemoglobina_g_dL < UMBRAL_MODERADA: return "MODERADA", umbral
-    elif hemoglobina_g_dL < umbral: return "LEVE", umbral
-    else: return "NO ANEMIA", umbral
+    # 1. Aplicar Corrección por Altitud
+    hb_corregida, correccion = corregir_hemoglobina_por_altitud(hemoglobina_g_dL, altitud_m)
+    
+    # 2. Definir Umbral por Edad
+    umbral = 0
+    if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0 # 6 meses a 5 años
+    elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5 # 5 años a 12 años
+    else: umbral = 12.0 # Resto
+    
+    # 3. Clasificar con Hb Corregida
+    if hb_corregida < UMBRAL_SEVERA: return "SEVERA", umbral, hb_corregida, correccion
+    elif hb_corregida < UMBRAL_MODERADA: return "MODERADA", umbral, hb_corregida, correccion
+    elif hb_corregida < umbral: return "LEVE", umbral, hb_corregida, correccion
+    else: return "NO ANEMIA", umbral, hb_corregida, correccion
 
 def preprocess_data_for_ml(data_raw, model_columns):
     """Prepara los datos crudos para el modelo de ML (One-Hot Encoding)."""
@@ -216,12 +243,10 @@ def rename_and_process_df(response_data):
     """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
     if response_data:
         df = pd.DataFrame(response_data)
-        # 🛑 CORRECCIÓN: Se elimina 'id' de la lista de renombrado
+        # 🛑 CORRECCIÓN: Se elimina 'id' de la lista de renombrado ya que no existe en la tabla 'alertas'
         df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
         
         # Agregamos una columna visible para el ID de actualización, usando el DNI
-        # Ya que la tabla no tiene 'id' auto-incremental, usamos DNI y Fecha como identificador único
-        # NOTA: En la realidad, se recomienda añadir un ID único a la tabla
         df['ID_GESTION'] = df['DNI'].astype(str) + '_' + df['Fecha Alerta'].astype(str)
         
         df['Sugerencias'] = df['Sugerencias'].apply(safe_json_to_text_display)
@@ -235,7 +260,7 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' y se usa 'fecha_alerta'
+        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' que causaba el error
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -250,7 +275,7 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id' y se usa 'fecha_alerta'
+        # 🛑 CORRECCIÓN: Se elimina el ordenamiento por 'id'
         response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -261,7 +286,6 @@ def obtener_todos_los_registros():
 def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
     """
     Actualiza el estado de una alerta usando DNI y Fecha de Alerta como clave compuesta.
-    NOTA: Esto asume que no hay dos registros para el mismo DNI en el mismo día.
     """
     supabase = get_supabase_client()
     if not supabase: return False
@@ -359,7 +383,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     pdf.set_text_color(0, 0, 0)
 
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 5, f"Gravedad Clínica (Hb): {gravedad_anemia} ({data['Hemoglobina_g_dL']} g/dL)", 0, 1)
+    pdf.cell(0, 5, f"Gravedad Clínica (Hb Corregida): {gravedad_anemia} ({data['Hemoglobina_g_dL']} g/dL)", 0, 1)
     pdf.cell(0, 5, f"Prob. de Alto Riesgo por IA: {prob_riesgo:.2%}", 0, 1)
     pdf.ln(5)
 
@@ -382,7 +406,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # ==============================================================================
 
 def vista_prediccion():
-    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.1 Híbrida)")
+    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.2 Híbrida con Corrección de Altitud)")
     st.markdown("---")
 
     if MODELO_COLUMNS is None:
@@ -391,6 +415,23 @@ def vista_prediccion():
 
     if MODELO_ML is None:
         st.warning("⚠️ El motor de Predicción de IA no está disponible. Solo se realizarán la **Clasificación Clínica** y la **Generación de PDF**.")
+
+    # 🛑 LISTA FINAL DE REGIONES DE PERÚ (25 Regiones: 24 Dptos + Callao)
+    REGIONES_PERU = [
+        "LIMA (Metropolitana y Provincia)", "CALLAO (Provincia Constitucional)", 
+        # Costa Norte y Centro
+        "PIURA", "LAMBAYEQUE", "LA LIBERTAD", "ÁNCASH (Costa)", "ICA", 
+        # Sierra/Andes (Alta y Media)
+        "PUNO (Sierra Alta)", "HUANCAVELICA (Sierra Alta)", "CUSCO (Andes)", 
+        "JUNÍN (Andes)", "AYACUCHO", "APURÍMAC", "HUÁNUCO", "PASCO", 
+        "CAJAMARCA", 
+        # Sur (Mayormente Sierra y Costa)
+        "AREQUIPA", "MOQUEGUA", "TACNA", 
+        # Selva (Amazonía)
+        "LORETO", "AMAZONAS", "SAN MARTÍN", "UCAYALI", "MADRE DE DIOS", 
+        # Otros
+        "OTRO / NO ESPECIFICADO"
+    ]
 
     if 'prediction_done' not in st.session_state: st.session_state.prediction_done = False
     
@@ -405,12 +446,13 @@ def vista_prediccion():
         col_h, col_e, col_a = st.columns(3)
         with col_h: hemoglobina = st.number_input("Hemoglobina (g/dL) - CRÍTICO", min_value=5.0, max_value=18.0, value=10.5, step=0.1)
         with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36)
-        with col_a: altitud = st.number_input("Altitud (metros s.n.m.)", min_value=0, max_value=5000, value=1500, step=10)
+        # ⚠️ Nota: El Altitud_m es crucial para la corrección de Hb
+        with col_a: altitud = st.number_input("Altitud (metros s.n.m.) - CLAVE", min_value=0, max_value=5000, value=1500, step=10) 
         st.markdown("---")
         
         st.subheader("2. Factores Socioeconómicos y Contextuales")
         col_r, col_c, col_ed = st.columns(3)
-        with col_r: region = st.selectbox("Región", options=['Lima', 'Junín', 'Piura', 'Cusco', 'Arequipa', 'Otro'])
+        with col_r: region = st.selectbox("Región", options=REGIONES_PERU) # 🛑 Uso de lista completa de regiones
         with col_c: clima = st.selectbox("Clima Predominante", options=['Templado andino', 'Frío andino', 'Cálido seco', 'Otro'])
         with col_ed: educacion_madre = st.selectbox("Nivel Educ. Madre", options=["Secundaria", "Primaria", "Superior Técnica", "Universitaria", "Inicial", "Sin Nivel"])
         
@@ -438,7 +480,8 @@ def vista_prediccion():
             
             data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
 
-            gravedad_anemia, umbral_clinico = clasificar_anemia_clinica(hemoglobina, edad_meses)
+            # 🛑 Llamada a la función corregida: Clasificación Clínica con ajuste por altitud
+            gravedad_anemia, umbral_clinico, hb_corregida, correccion_alt = clasificar_anemia_clinica(hemoglobina, edad_meses, altitud)
             prob_alto_riesgo, resultado_ml = predict_risk_ml(data)
 
             if gravedad_anemia in ['SEVERA', 'MODERADA']:
@@ -451,31 +494,41 @@ def vista_prediccion():
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia)
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales}
 
+            # Intenta registrar en DB
             registrar_alerta_db(alerta_data)
 
+            # Guardar resultados en session_state y recargar
             st.session_state.resultado = resultado_final
             st.session_state.prob_alto_riesgo = prob_alto_riesgo
             st.session_state.gravedad_anemia = gravedad_anemia
             st.session_state.sugerencias_finales = sugerencias_finales
             st.session_state.data_reporte = data
+            st.session_state.hb_corregida = hb_corregida
+            st.session_state.correccion_alt = correccion_alt
             st.session_state.prediction_done = True
             st.rerun()
 
+    # Mostrar resultados después de la predicción
     if st.session_state.prediction_done:
         resultado_final = st.session_state.resultado
         prob_alto_riesgo = st.session_state.prob_alto_riesgo
         gravedad_anemia = st.session_state.gravedad_anemia
         sugerencias_finales = st.session_state.sugerencias_finales
         data_reporte = st.session_state.data_reporte
+        hb_corregida = st.session_state.hb_corregida
+        correccion_alt = st.session_state.correccion_alt
         
         st.header("Análisis y Reporte de Control Oportuno")
         if resultado_final.startswith("ALTO"): st.error(f"## 🔴 RIESGO: {resultado_final}")
         elif resultado_final.startswith("MEDIO"): st.warning(f"## 🟠 RIESGO: {resultado_final}")
         else: st.success(f"## 🟢 RIESGO: {resultado_final}")
         
-        col_res1, col_res2 = st.columns(2)
-        with col_res1: st.metric(label="Clasificación Clínica (Gravedad Hb)", value=gravedad_anemia)
-        with col_res2: st.metric(label="Prob. de Alto Riesgo por IA", value=f"{prob_alto_riesgo:.2%}")
+        col_res1, col_res2, col_res3 = st.columns(3)
+        with col_res1: st.metric(label="Hemoglobina Medida (g/dL)", value=data_reporte['Hemoglobina_g_dL'])
+        with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"-{correccion_alt:.1f} g/dL")
+        with col_res3: st.metric(label="Hemoglobina Corregida (g/dL)", value=f"**{hb_corregida:.1f}**", delta=f"Gravedad: {gravedad_anemia}")
+        
+        st.metric(label="Prob. de Alto Riesgo por IA", value=f"{prob_alto_riesgo:.2%}")
         
         st.subheader("📝 Sugerencias Personalizadas de Intervención Oportuna:")
         for sugerencia in sugerencias_finales: st.info(sugerencia.replace('|', '** | **'))
@@ -519,12 +572,12 @@ def vista_monitoreo():
         if st.button("Guardar Cambios de Estado", type="primary"):
             cambios_guardados = 0
             for original_row in df_monitoreo.itertuples():
-                # Encontrar la fila editada usando la clave compuesta ID_GESTION
-                clave_compuesta = original_row.DNI + '_' + original_row._6 # Columna DNI + Fecha Alerta
+                # Encontrar la fila editada usando el DNI (asumiendo que DNI es único en el dataframe filtrado)
                 edited_row = edited_df[edited_df['DNI'] == original_row.DNI].iloc[0]
                 
                 if original_row.Estado != edited_row['Estado']:
                     # Usamos DNI y Fecha Alerta para la actualización
+                    # La fecha de alerta está en el índice 6 de la tupla de nombres generados por .itertuples()
                     if actualizar_estado_alerta(original_row.DNI, original_row._6, edited_row['Estado']): 
                         st.success(f"Estado del DNI **{original_row.DNI}** (Fecha: {original_row._6}) actualizado a **{edited_row['Estado']}**.")
                         cambios_guardados += 1
@@ -557,10 +610,9 @@ opcion_seleccionada = st.sidebar.radio(
     ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("App Híbrida v2.1 (Clínica + IA)")
+st.sidebar.info("App Híbrida v2.2 (Clínica + IA)")
 
 if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
 elif opcion_seleccionada == "📊 Monitoreo y Reportes":
     vista_monitoreo()
-
