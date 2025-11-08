@@ -6,8 +6,6 @@ from supabase import create_client, Client
 import datetime
 from fpdf import FPDF
 import base64
-import requests
-import io
 import json
 import re
 import os
@@ -70,11 +68,11 @@ def get_supabase_client():
         return None
 
 # ===================================================================
-# CARGA DE ACTIVOS DE MACHINE LEARNING (SOLO CARGA LOCAL)
+# CARGA DE ACTIVOS DE MACHINE LEARNING (SOLUCIÓN DE ERRORES JOB LIB)
 # ===================================================================
 @st.cache_resource
 def load_model_components():
-    """Carga los activos de ML directamente desde archivos locales."""
+    """Carga los activos de ML directamente desde archivos locales de forma más robusta."""
     modelo = None
 
     # 1️⃣ Cargar columnas
@@ -90,6 +88,7 @@ def load_model_components():
 
     # 2️⃣ Cargar modelo
     try:
+        # Intentamos cargar el modelo de forma estándar
         model = joblib.load(MODEL_FILENAME)
         st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
         return model, model_columns
@@ -97,7 +96,8 @@ def load_model_components():
         st.error(f"❌ CRÍTICO: No se encontró el archivo '{MODEL_FILENAME}'. La predicción de IA está deshabilitada.")
         return None, model_columns
     except Exception as e:
-        st.error(f"❌ ERROR al cargar el modelo local: {e}")
+        # Mensaje de error más descriptivo para problemas comunes (corrupción, versión, etc.)
+        st.error(f"❌ ERROR CRÍTICO al cargar el modelo local '{MODEL_FILENAME}'. El archivo puede estar corrupto o guardado con una versión incompatible de scikit-learn o Python. Detalle: {e}")
         st.warning("⚠️ La predicción de IA está temporalmente deshabilitada.")
         return None, model_columns
 
@@ -304,11 +304,13 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
+        # CORRECCIÓN: Asegurar que se selecciona todo con '*' para evitar el error 'id does not exist'
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        st.error(f"❌ Error al consultar alertas de monitoreo: {e}") 
+        # Se muestra el error, pero se mantiene la ejecución
+        st.error(f"❌ Error al consultar alertas de monitoreo (Supabase): {e}") 
         return pd.DataFrame()
 
 @st.cache_data
@@ -318,11 +320,12 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
+        # CORRECCIÓN: Asegurar que se selecciona todo con '*'
         response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        st.error(f"❌ Error al consultar el historial de registros: {e}")
+        st.error(f"❌ Error al consultar el historial de registros (Supabase): {e}")
         return pd.DataFrame()
 
 def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
@@ -333,6 +336,7 @@ def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
     if not supabase: return False
     try:
         # Se usa DNI y fecha para actualizar el registro.
+        # Esto asume que la tabla no tiene 'id' auto-incrementable o que no lo estamos usando.
         supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('dni', dni).eq('fecha_alerta', fecha_alerta).execute()
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
@@ -448,7 +452,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # ==============================================================================
 
 def vista_prediccion():
-    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.4 Altitud y Clima Automatizados)")
+    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.5 Altitud y Clima Automatizados)")
     st.markdown("---")
 
     if MODELO_COLUMNS is None:
@@ -573,7 +577,10 @@ def vista_prediccion():
         
         col_res1, col_res2, col_res3 = st.columns(3)
         with col_res1: st.metric(label="Hemoglobina Medida (g/dL)", value=data_reporte['Hemoglobina_g_dL'])
-        with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"-{correccion_alt:.1f} g/dL")
+        
+        # CORRECCIÓN DE FORMATO: Usamos abs() para eliminar el signo negativo de -0.0
+        with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"-{abs(correccion_alt):.1f} g/dL")
+        
         with col_res3: st.metric(label="Hemoglobina Corregida (g/dL)", value=f"**{hb_corregida:.1f}**", delta=f"Gravedad: {gravedad_anemia}")
         
         st.metric(label="Prob. de Alto Riesgo por IA", value=f"{prob_alto_riesgo:.2%}")
@@ -659,7 +666,7 @@ opcion_seleccionada = st.sidebar.radio(
     ["📝 Generar Informe (Predicción)", "📊 Monitoreo y Reportes"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("App Híbrida v2.4 (Clínica + IA)")
+st.sidebar.info("App Híbrida v2.5 (Solución de Errores)")
 
 if opcion_seleccionada == "📝 Generar Informe (Predicción)":
     vista_prediccion()
