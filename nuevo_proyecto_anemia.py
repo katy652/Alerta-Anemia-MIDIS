@@ -20,7 +20,8 @@ st.set_page_config(
     page_title="Alerta de Riesgo de Anemia (IA)",
     page_icon="🩸",
     layout="wide",
-    initial_sidebar_state="expanded"
+    # NOTA: Cambiamos el título en el código para que puedas verificar visualmente la versión
+    initial_sidebar_state="expanded" 
 )
 
 # --- Constantes de Umbral ---
@@ -63,6 +64,7 @@ def get_supabase_client():
             return None
 
     try:
+        # La URL de Supabase de tu proyecto es 'https://kwsuszkolbejvliniqgd.supabase.co'
         supabase: Client = create_client(url, key)
         return supabase
     except Exception as e:
@@ -71,6 +73,7 @@ def get_supabase_client():
 
 # ===================================================================
 # CARGA DE ACTIVOS DE MACHINE LEARNING (SOLO CARGA LOCAL)
+# Soluciona los errores '60' de descarga
 # ===================================================================
 @st.cache_resource
 def load_model_components():
@@ -299,7 +302,7 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # CORRECCIÓN: Consulta sin dependencia de 'id'
+        # CORRECCIÓN: Consulta sin dependencia de 'id' para evitar el error 'column alertas.id does not exist'
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -445,7 +448,8 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # ==============================================================================
 
 def vista_prediccion():
-    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.3 Automatizada)")
+    # El título indica la nueva versión y la función de automatización
+    st.title("📝 Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.3 Automatizada por Región)")
     st.markdown("---")
 
     if MODELO_COLUMNS is None:
@@ -481,7 +485,7 @@ def vista_prediccion():
         with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36)
         with col_r: region = st.selectbox("Región (Define la Altitud)", options=REGIONES_PERU)
         
-        # 🛑 Altitud se calcula automáticamente
+        # 🛑 Altitud se calcula automáticamente aquí, eliminando la entrada manual
         altitud_calculada = get_altitud_por_region(region)
         st.info(f"📍 Altitud asignada automáticamente para **{region}**: **{altitud_calculada} msnm** (Usada para la corrección de Hemoglobina).")
         st.markdown("---")
