@@ -86,7 +86,7 @@ def load_model_components():
         st.error(f"❌ ERROR al cargar las columnas: {e}")
         return None, None
 
-    # 2️⃣ Cargar modelo
+    # 2️⃣ Cargar modelo (Se espera que al fijar 'scikit-learn==1.3.0' en requirements.txt esto funcione)
     try:
         # Intentamos cargar el modelo de forma estándar
         model = joblib.load(MODEL_FILENAME)
@@ -160,10 +160,12 @@ def get_clima_por_region(region):
         
         "OTRO / NO ESPECIFICADO": 'Otro' 
     }
+    # Solo se esperan estos 4 valores en el modelo de ML
     return clima_map.get(region, 'Otro')
 
 def corregir_hemoglobina_por_altitud(hemoglobina_medida, altitud_m):
     """Aplica la corrección de Hemoglobina según la altitud (OMS, 2011)."""
+    # Basado en la tabla de la OMS
     if altitud_m < 1000: correccion = 0.0
     elif altitud_m < 2000: correccion = 0.2
     elif altitud_m < 3000: correccion = 0.5
@@ -186,11 +188,11 @@ def clasificar_anemia_clinica(hemoglobina_g_dL, edad_meses, altitud_m):
     # 1. Aplicar Corrección por Altitud
     hb_corregida, correccion = corregir_hemoglobina_por_altitud(hemoglobina_g_dL, altitud_m)
     
-    # 2. Definir Umbral por Edad
+    # 2. Definir Umbral por Edad (Normas MSAL/INS Perú)
     umbral = 0
     if edad_meses >= 6 and edad_meses <= 59: umbral = 11.0 # 6 meses a 5 años
     elif edad_meses >= 60 and edad_meses <= 144: umbral = 11.5 # 5 años a 12 años
-    else: umbral = 12.0 # Resto
+    else: umbral = 12.0 # Adolescentes y adultos (por simplificación)
     
     # 3. Clasificar con Hb Corregida
     if hb_corregida < UMBRAL_SEVERA: return "SEVERA", umbral, hb_corregida, correccion
@@ -288,8 +290,11 @@ def rename_and_process_df(response_data):
     """Procesa los datos de respuesta de Supabase a un DataFrame legible."""
     if response_data:
         df = pd.DataFrame(response_data)
-        # CORRECCIÓN: Se eliminó 'id' del mapeo de columnas para evitar errores
+        # La tabla alertas en Supabase tiene estas columnas
         df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias'})
+        
+        # Si existe la columna 'id' (después de la migración SQL), la incluimos en el mapeo
+        if 'id' in df.columns: df = df.rename(columns={'id': 'ID_DB'})
         
         df['ID_GESTION'] = df['DNI'].astype(str) + '_' + df['Fecha Alerta'].astype(str)
         
@@ -304,12 +309,12 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # CORRECCIÓN: Asegurar que se selecciona todo con '*' para evitar el error 'id does not exist'
+        # Se asume que la migración SQL ya creó la columna 'id', si no, usamos '*'
         response = supabase.table(SUPABASE_TABLE).select('*').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        # Se muestra el error, pero se mantiene la ejecución
+        # Esto debería resolverse al crear la columna 'id'
         st.error(f"❌ Error al consultar alertas de monitoreo (Supabase): {e}") 
         return pd.DataFrame()
 
@@ -320,7 +325,7 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        # CORRECCIÓN: Asegurar que se selecciona todo con '*'
+        # Se usa '*' para seleccionar todas las columnas (dni, nombre_apellido, etc.)
         response = supabase.table(SUPABASE_TABLE).select('*').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
@@ -336,7 +341,6 @@ def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
     if not supabase: return False
     try:
         # Se usa DNI y fecha para actualizar el registro.
-        # Esto asume que la tabla no tiene 'id' auto-incrementable o que no lo estamos usando.
         supabase.table(SUPABASE_TABLE).update({'estado': nuevo_estado}).eq('dni', dni).eq('fecha_alerta', fecha_alerta).execute()
         obtener_alertas_pendientes_o_seguimiento.clear()
         obtener_todos_los_registros.clear()
@@ -359,6 +363,7 @@ def registrar_alerta_db(data_alerta):
         
         fecha_registro = datetime.date.today().isoformat()
 
+        # Las columnas que se insertan coinciden con la tabla 'alertas'
         data = {
             'dni': data_alerta['DNI'],
             'nombre_apellido': data_alerta['Nombre_Apellido'],
@@ -459,6 +464,7 @@ def vista_prediccion():
         st.error(f"❌ El formulario está deshabilitado. No se pudo cargar los archivos necesarios. Revise los errores críticos de arriba.")
         return
 
+    # Mensaje de advertencia si la IA no carga (Error 60)
     if MODELO_ML is None:
         st.warning("⚠️ El motor de Predicción de IA no está disponible. Solo se realizarán la **Clasificación Clínica** y la **Generación de PDF**.")
 
@@ -578,7 +584,7 @@ def vista_prediccion():
         col_res1, col_res2, col_res3 = st.columns(3)
         with col_res1: st.metric(label="Hemoglobina Medida (g/dL)", value=data_reporte['Hemoglobina_g_dL'])
         
-        # CORRECCIÓN DE FORMATO: Usamos abs() para eliminar el signo negativo de -0.0
+        # Corrección del formato de la corrección de altitud
         with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"-{abs(correccion_alt):.1f} g/dL")
         
         with col_res3: st.metric(label="Hemoglobina Corregida (g/dL)", value=f"**{hb_corregida:.1f}**", delta=f"Gravedad: {gravedad_anemia}")
@@ -607,19 +613,29 @@ def vista_monitoreo():
     df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
 
     if df_monitoreo.empty:
-        st.success("No hay casos de alto riesgo o críticos pendientes de seguimiento activo. ✅")
+        # Se muestra un error si el fallo persiste
+        if st.session_state.get('supabase_error', False):
+             st.warning("No hay casos de monitoreo activo. (El error de 'id' en Supabase debe ser corregido para acceder a esta sección).")
+        else:
+             st.success("No hay casos de alto riesgo o críticos pendientes de seguimiento activo. ✅")
     else:
         st.info(f"Se encontraron **{len(df_monitoreo)}** casos que requieren acción inmediata o seguimiento activo.")
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)"]
         
-        df_display = df_monitoreo[['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']].copy()
+        # Usamos ID_DB si existe (después de la migración SQL), si no, usamos la clave compuesta
+        cols_to_display = ['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']
+        if 'ID_DB' in df_monitoreo.columns:
+             cols_to_display.insert(0, 'ID_DB')
+
+        df_display = df_monitoreo[cols_to_display].copy()
         
         edited_df = st.data_editor(
             df_display,
             column_config={
                 "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True), 
                 "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
-                "ID_GESTION": None # Ocultar la clave compuesta
+                "ID_GESTION": None, # Ocultar la clave compuesta
+                "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True)
             },
             hide_index=True, num_rows="fixed", use_container_width=True
         )
@@ -628,9 +644,9 @@ def vista_monitoreo():
             cambios_guardados = 0
             for original_row in df_monitoreo.itertuples():
                 # Encontrar la fila editada usando el DNI y la Fecha (clave compuesta)
-                # La fecha de alerta está en el índice 6 de la tupla generada por .itertuples()
+                # _6 es el índice de la columna 'Fecha Alerta' en la tupla.
                 edited_row_mask = (edited_df['DNI'] == original_row.DNI)
-                if not edited_row_mask.any(): continue # Salta si la fila no se encuentra (no debería pasar)
+                if not edited_row_mask.any(): continue 
                 edited_row = edited_df[edited_row_mask].iloc[0]
                 
                 if original_row.Estado != edited_row['Estado']:
