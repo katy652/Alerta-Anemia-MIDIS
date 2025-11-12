@@ -4,7 +4,7 @@ numpy
 unidecode
 fpdf2
 joblib
-supabase
+supabase-py
 scikit-learn
 gdown
 plotly
