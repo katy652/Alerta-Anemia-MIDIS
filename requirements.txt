@@ -7,3 +7,4 @@ joblib
 supabase
 scikit-learn
 gdown
+plotly
