@@ -15,7 +15,7 @@ import plotly.express as px
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
 # ==============================================================================
 
-# 🛑 BLOQUE DE CÓDIGO CRÍTICO REESCRITO PARA EVITAR ERROR U+00A0
+# Configuración de página (corregida del error U+00A0)
 st.set_page_config(
     page_title="Alerta de Riesgo de Anemia (IA)",
     page_icon="🩸",
@@ -89,9 +89,8 @@ def load_model_components():
         st.error(f"❌ ERROR al cargar las columnas: {e}")
         return None, None
 
-    # 2️⃣ Cargar modelo (Se espera que al fijar 'scikit-learn==1.3.0' en requirements.txt esto funcione)
+    # 2️⃣ Cargar modelo
     try:
-        # Intentamos cargar el modelo de forma estándar
         model = joblib.load(MODEL_FILENAME)
         st.success("✅ Modelo de IA cargado correctamente desde almacenamiento local.")
         return model, model_columns
@@ -99,7 +98,6 @@ def load_model_components():
         st.error(f"❌ CRÍTICO: No se encontró el archivo '{MODEL_FILENAME}'. La predicción de IA está deshabilitada.")
         return None, model_columns
     except Exception as e:
-        # Mensaje de error más descriptivo para problemas comunes (corrupción, versión, etc.)
         st.error(f"❌ ERROR CRÍTICO al cargar el modelo local '{MODEL_FILENAME}'. El archivo puede estar corrupto o guardado con una versión incompatible de scikit-learn o Python. Detalle: {e}")
         st.warning("⚠️ La predicción de IA está temporalmente deshabilitada.")
         return None, model_columns
@@ -142,29 +140,29 @@ def get_clima_por_region(region):
     """Asigna el clima predominante a la región seleccionada, usando las 4 categorías del modelo."""
     clima_map = {
         # Clima Cálido Seco (Costa y Zonas Áridas)
-        "LIMA (Metropolitana y Provincia)": 'Cálido seco', "CALLAO (Provincia Constitucional)": 'Cálido seco',
-        "PIURA": 'Cálido seco', "LAMBAYEQUE": 'Cálido seco', "LA LIBERTAD": 'Cálido seco',
-        "ICA": 'Cálido seco', "TUMBES": 'Cálido seco', "ÁNCASH (Costa)": 'Cálido seco',
-        "TACNA": 'Cálido seco',
+        "LIMA (Metropolitana y Provincia)": 'cálido seco', "CALLAO (Provincia Constitucional)": 'cálido seco',
+        "PIURA": 'cálido seco', "LAMBAYEQUE": 'cálido seco', "LA LIBERTAD": 'cálido seco',
+        "ICA": 'cálido seco', "TUMBES": 'cálido seco', "ÁNCASH (Costa)": 'cálido seco',
+        "TACNA": 'cálido seco',
         
         # Clima Frío Andino (Sierra Alta > 3000 msnm)
-        "JUNÍN (Andes)": 'Frío andino', "PUNO (Sierra Alta)": 'Frío andino',
-        "HUANCAVELICA (Sierra Alta)": 'Frío andino', "PASCO": 'Frío andino',
+        "JUNÍN (Andes)": 'frío andino', "PUNO (Sierra Alta)": 'frío andino',
+        "HUANCAVELICA (Sierra Alta)": 'frío andino', "PASCO": 'frío andino',
         
         # Clima Templado Andino (Sierra Media 1500-3000 msnm)
-        "HUÁNUCO": 'Templado andino', "CUSCO (Andes)": 'Templado andino',
-        "AYACUCHO": 'Templado andino', "APURÍMAC": 'Templado andino',
-        "CAJAMARCA": 'Templado andino', "AREQUIPA": 'Templado andino',
-        "MOQUEGUA": 'Templado andino',
+        "HUÁNUCO": 'templado andino', "CUSCO (Andes)": 'templado andino',
+        "AYACUCHO": 'templado andino', "APURÍMAC": 'templado andino',
+        "CAJAMARCA": 'templado andino', "AREQUIPA": 'templado andino',
+        "MOQUEGUA": 'templado andino',
         
         # Clima Otro (Selva / Cálido Húmedo)
-        "LORETO": 'Otro', "AMAZONAS": 'Otro', "SAN MARTÍN": 'Otro',
-        "UCAYALI": 'Otro', "MADRE DE DIOS": 'Otro',
+        "LORETO": 'otro', "AMAZONAS": 'otro', "SAN MARTÍN": 'otro',
+        "UCAYALI": 'otro', "MADRE DE DIOS": 'otro',
         
-        "OTRO / NO ESPECIFICADO": 'Otro'
+        "OTRO / NO ESPECIFICADO": 'otro'
     }
-    # Solo se esperan estos 4 valores en el modelo de ML
-    return clima_map.get(region, 'Otro')
+    # Convertir a minúsculas y sin acentos para coincidir con el modelo de ML
+    return limpiar_texto(clima_map.get(region, 'otro'))
 
 def corregir_hemoglobina_por_altitud(hemoglobina_medida, altitud_m):
     """Aplica la corrección de Hemoglobina según la altitud (OMS, 2011)."""
@@ -294,7 +292,7 @@ def rename_and_process_df(response_data):
     if response_data:
         df = pd.DataFrame(response_data)
         # La tabla alertas en Supabase tiene estas columnas
-        df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias', 'region': 'Region'}) # AÑADIDO 'region'
+        df = df.rename(columns={'dni': 'DNI', 'nombre_apellido': 'Nombre', 'edad_meses': 'Edad (meses)', 'hemoglobina_g_dL': 'Hb Inicial', 'riesgo': 'Riesgo', 'fecha_alerta': 'Fecha Alerta', 'estado': 'Estado', 'sugerencias': 'Sugerencias', 'region': 'Region'}) 
         
         # Si existe la columna 'id' (después de la migración SQL), la incluimos en el mapeo
         if 'id' in df.columns: df = df.rename(columns={'id': 'ID_DB'})
@@ -312,12 +310,11 @@ def obtener_alertas_pendientes_o_seguimiento():
     if not supabase: return pd.DataFrame()
 
     try:
-        # Se asume que la migración SQL ya creó la columna 'id', si no, usamos '*'
+        # Se incluye la columna 'region' en la consulta
         response = supabase.table(SUPABASE_TABLE).select('*, region').in_('estado', ['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO']).order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        # Esto debería resolverse al crear la columna 'id'
         st.error(f"❌ Error al consultar alertas de monitoreo (Supabase): {e}")
         return pd.DataFrame()
 
@@ -328,12 +325,13 @@ def obtener_todos_los_registros():
     if not supabase: return pd.DataFrame()
 
     try:
-        # Se usa '*, region' para seleccionar todas las columnas necesarias (incluyendo la región para el dashboard)
+        # Se incluye la columna 'region' en la consulta
         response = supabase.table(SUPABASE_TABLE).select('*, region').order('fecha_alerta', desc=True).execute()
         return rename_and_process_df(response.data)
 
     except Exception as e:
-        st.error(f"❌ Error al consultar el historial de registros (Supabase): {e}")
+        # Este es el error "column 'alertas.region' does not exist" si la columna no se ha añadido
+        st.error(f"❌ Error al consultar el historial de registros (Supabase). Mensaje: {e}")
         return pd.DataFrame()
 
 def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
@@ -366,7 +364,7 @@ def registrar_alerta_db(data_alerta):
         
         fecha_registro = datetime.date.today().isoformat()
 
-        # Las columnas que se insertan coinciden con la tabla 'alertas'
+        # Las columnas que se insertan coinciden con la tabla 'alertas', incluyendo 'region'
         data = {
             'dni': data_alerta['DNI'],
             'nombre_apellido': data_alerta['Nombre_Apellido'],
@@ -376,7 +374,7 @@ def registrar_alerta_db(data_alerta):
             'fecha_alerta': fecha_registro,
             'estado': estado,
             'sugerencias': json.dumps(data_alerta['sugerencias']),
-            'region': data_alerta['Region'] # <--- AÑADIDO 'Region'
+            'region': data_alerta['Region'] # <-- Columna 'region'
         }
 
         supabase.table(SUPABASE_TABLE).insert(data).execute()
@@ -468,7 +466,7 @@ def vista_prediccion():
         st.error(f"❌ El formulario está deshabilitado. No se pudo cargar los archivos necesarios. Revise los errores críticos de arriba.")
         return
 
-    # Mensaje de advertencia si la IA no carga (Error 60)
+    # Mensaje de advertencia si la IA no carga
     if MODELO_ML is None:
         st.warning("⚠️ El motor de Predicción de IA no está disponible. Solo se realizarán la **Clasificación Clínica** y la **Generación de PDF**.")
 
@@ -507,7 +505,7 @@ def vista_prediccion():
         
         # 🛑 Clima se calcula automáticamente
         clima_calculado = get_clima_por_region(region)
-        clima = clima_calculado # Asignamos el valor calculado a la variable 'clima'
+        clima = clima_calculado 
         
         col_c, col_ed = st.columns(2)
         with col_c:
@@ -612,17 +610,13 @@ def vista_monitoreo():
     st.header("1. Casos de Monitoreo Activo (Pendientes y En Seguimiento)")
     
     if get_supabase_client() is None:
-        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus 'secrets'.")
+        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase. Por favor, revise sus 'secrets' o la clave FALLBACK.")
         return
 
     df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
 
     if df_monitoreo.empty:
-        # Se muestra un error si el fallo persiste
-        if st.session_state.get('supabase_error', False):
-             st.warning("No hay casos de monitoreo activo. (El error de 'id' en Supabase debe ser corregido para acceder a esta sección).")
-        else:
-             st.success("No hay casos de alto riesgo o críticos pendientes de seguimiento activo. ✅")
+        st.success("No hay casos de alto riesgo o críticos pendientes de seguimiento activo. ✅")
     else:
         st.info(f"Se encontraron **{len(df_monitoreo)}** casos que requieren acción inmediata o seguimiento activo.")
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)"]
@@ -684,13 +678,20 @@ def vista_monitoreo():
 # ==============================================================================
 
 def vista_dashboard():
-    st.title("📊 Dashboard Estadístico de Alertas de Anemia")
+    st.title("📊 Panel Estadístico de Alertas de Anemia")
     st.markdown("---")
+    
+    if get_supabase_client() is None:
+        st.error("🛑 El dashboard no está disponible. No se pudo establecer conexión con Supabase.")
+        return
 
     df_historial = obtener_todos_los_registros()
 
     if df_historial.empty:
-        st.info("No hay datos de historial disponibles para generar el dashboard.")
+        st.info("No hay datos de historial disponibles para generar el tablero.")
+        # Se muestra el error de la DB aquí para claridad
+        if st.session_state.get('supabase_error_historial'):
+             st.error(f"❌ Error al consultar el historial de registros (Supabase): {st.session_state.get('supabase_error_historial')}")
         return
 
     # Preparar datos: Contar por riesgo, región y estado
@@ -707,9 +708,13 @@ def vista_dashboard():
     # --- FILTROS ---
     st.sidebar.header("Filtros del Dashboard")
     regiones_disponibles = sorted(df_historial['Region'].unique())
-    filtro_region = st.sidebar.multiselect("Filtrar por Región:", regiones_disponibles, default=regiones_disponibles)
-    df_filtrado = df_historial[df_historial['Region'].isin(filtro_region)]
-    
+    # Usar el filtro solo si hay regiones disponibles
+    if regiones_disponibles:
+        filtro_region = st.sidebar.multiselect("Filtrar por Región:", regiones_disponibles, default=regiones_disponibles)
+        df_filtrado = df_historial[df_historial['Region'].isin(filtro_region)]
+    else:
+        df_filtrado = df_historial
+
     if df_filtrado.empty:
         st.warning("No hay datos para la selección actual de filtros.")
         return
@@ -727,7 +732,6 @@ def vista_dashboard():
             title='Distribución por Nivel de Riesgo',
             color_discrete_sequence=px.colors.qualitative.Bold
         )
-        # Redimensionar el gráfico para que quepa bien en la columna
         fig_riesgo.update_layout(height=400, margin=dict(t=50, b=0, l=0, r=0))
         st.plotly_chart(fig_riesgo, use_container_width=True)
 
@@ -745,7 +749,8 @@ def vista_dashboard():
                 'PENDIENTE (IA/VULNERABILIDAD)': 'orange',
                 'EN SEGUIMIENTO': 'blue',
                 'RESUELTO': 'green',
-                'REGISTRADO': 'gray'
+                'REGISTRADO': 'gray',
+                'CERRADO (NO APLICA)': 'purple'
             }
         )
         fig_estado.update_layout(height=400, margin=dict(t=50, b=0, l=0, r=0))
@@ -792,8 +797,8 @@ def main():
         st.title("🩸 Sistema de Alerta IA")
         st.markdown("---")
         seleccion = st.radio(
-            "Seleccione la Vista:",
-            ["Predicción y Reporte", "Monitoreo de Alertas", "Dashboard Estadístico"]
+            "Ahora la vista:",
+            ["Predicción y Reporte", "Monitoreo de Alertas", "Panel de control estadístico"]
         )
         st.markdown("---")
         # Mostrar el estado del modelo y Supabase en la barra lateral
@@ -807,7 +812,7 @@ def main():
         vista_prediccion()
     elif seleccion == "Monitoreo de Alertas":
         vista_monitoreo()
-    elif seleccion == "Dashboard Estadístico":
+    elif seleccion == "Panel de control estadístico":
         vista_dashboard()
 
 if __name__ == "__main__":
