@@ -30,6 +30,8 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
 MODEL_FILENAME = "modelo_anemia.joblib"
+# AÑADIR ESTA CONSTANTE
+DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib"
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
@@ -816,5 +818,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
