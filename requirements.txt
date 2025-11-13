@@ -8,6 +8,6 @@ matplotlib
 seaborn
 unidecode
 fpdf2
-supabase-py
+supabase
 psycopg2-binary
 gdown
