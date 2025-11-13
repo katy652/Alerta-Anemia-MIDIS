@@ -10,6 +10,7 @@ import json
 import re
 import os
 import plotly.express as px
+import requests
 
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
@@ -33,6 +34,36 @@ MODEL_FILENAME = "modelo_anemia.joblib"
 # AÑADIR ESTA CONSTANTE
 DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib"
+
+def download_file_from_google_drive(id, destination):
+    """Descarga un archivo grande de Google Drive a una ubicación local."""
+    
+    # URL de descarga de Google Drive (cambia el 'view' por 'uc')
+    URL = "https://docs.google.com/uc?export=download"
+
+    session = requests.Session()
+
+    response = session.get(URL, params = { 'id' : id }, stream = True)
+    token = get_confirm_token(response)
+
+    if token:
+        params = { 'id' : id, 'confirm' : token }
+        response = session.get(URL, params = params, stream = True)
+
+    chunk_size = 32768
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(chunk_size):
+            if chunk: # filtrar los chunks vacíos
+                f.write(chunk)
+                
+    return os.path.exists(destination)
+
+def get_confirm_token(response):
+    """Extrae el token de confirmación necesario para descargar archivos grandes."""
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -818,6 +849,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
