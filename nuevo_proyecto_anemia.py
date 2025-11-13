@@ -29,8 +29,8 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
-MODEL_FILENAME = "modelo_anemia.joblib"
-COLUMNS_FILENAME = "modelo_columns.joblib"
+MODEL_URL = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+COLUMNS_URL = "https://drive.google.com/uc?id=TU_ID_DEL_ARCHIVO_COLUMNS"
 
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
@@ -817,5 +817,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
