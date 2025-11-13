@@ -30,10 +30,16 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
+
 MODEL_FILENAME = "modelo_anemia.joblib"
-# AÑADIR ESTA CONSTANTE
-DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
 COLUMNS_FILENAME = "modelo_columns.joblib"
+
+# Tu ID de Google Drive
+DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+
+def download_file_from_drive(file_id, output):
+    url = f"https://drive.google.com/uc?id={file_id}"
+    gdown.download(url, output, quiet=False)
 
 def download_file_from_google_drive(id, destination):
     """Descarga un archivo grande de Google Drive a una ubicación local."""
@@ -849,4 +855,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
