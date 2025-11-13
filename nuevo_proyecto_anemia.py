@@ -29,9 +29,29 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
-MODEL_URL = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
-COLUMNS_URL = "https://drive.google.com/uc?id=TU_ID_DEL_ARCHIVO_COLUMNS"
 
+URL_DEL_MODELO = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+COLUMNAS_URL = "https://drive.google.com/uc?id=1005dx_FEvPQajPOXT9BZKPBWmKvj0RU1"
+
+MODEL_FILENAME = "modelo_anemia.joblib"
+COLUMNS_FILENAME = "modelo_columns.joblib"
+
+# --- Descarga automática de archivos si no existen ---
+if not os.path.exists(MODEL_FILENAME):
+    st.info("📥 Descargando modelo desde Google Drive...")
+    gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
+
+if not os.path.exists(COLUMNS_FILENAME):
+    st.info("📥 Descargando columnas desde Google Drive...")
+    gdown.download(COLUMNAS_URL, COLUMNS_FILENAME, quiet=False)
+
+# --- Carga de los archivos ---
+try:
+    model = joblib.load(MODEL_FILENAME)
+    columnas = joblib.load(COLUMNS_FILENAME)
+    st.success("✅ Modelo y columnas cargados correctamente.")
+except Exception as e:
+    st.error(f"❌ Error al cargar los archivos: {e}")
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -817,6 +837,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
