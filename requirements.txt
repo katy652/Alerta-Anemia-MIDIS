@@ -1,0 +1,13 @@
+streamlight
+pandas
+Numpy
+joblib
+scikit-learn
+trama
+matplotlib
+nacido por mar
+Unicode
+fpdf2
+supabase-py
+psycopg2-binario
+gdown
