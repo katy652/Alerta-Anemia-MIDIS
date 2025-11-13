@@ -5,9 +5,8 @@ joblib
 scikit-learn
 trama
 matplotlib
-nacido por mar
 Unicode
 fpdf2
-supabase-py
+supabase
 psycopg2-binario
 gdown
