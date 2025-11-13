@@ -10,7 +10,6 @@ import json
 import re
 import os
 import plotly.express as px
-import gdown
 
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
@@ -30,40 +29,9 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
-
 MODEL_FILENAME = "modelo_anemia.joblib"
 COLUMNS_FILENAME = "modelo_columns.joblib"
 
-# ============================
-# DESCARGA DE ARCHIVOS
-# ============================
-
-def descargar_modelo_y_columnas():
-    status_area = st.empty()
-
-    try:
-        with status_area.container():
-            st.info("🔽 Descargando modelo desde Google Drive...")
-
-            # --- Descargar modelo si no existe ---
-            if not os.path.exists(MODEL_FILENAME):
-                gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
-
-            st.success("✅ Modelo descargado correctamente.")
-
-            # --- Descargar columnas si no existe ---
-            if not os.path.exists(COLUMNS_FILENAME):
-                gdown.download(URL_COLUMNAS, COLUMNS_FILENAME, quiet=False)
-
-            st.success("✅ Archivo de columnas cargado correctamente.")
-
-    except Exception as e:
-        status_area.error(f"❌ Error al descargar archivos: {e}")
-
-# ============================
-# LLAMAR A LA FUNCIÓN
-# ============================
-descargar_modelo_y_columnas()
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -849,13 +817,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
