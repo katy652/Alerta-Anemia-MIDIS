@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+joblib
+scikit-learn
+plotly
+matplotlib
+seaborn
+unidecode
+fpdf2
+supabase-py
+psycopg2-binary
+gdown
