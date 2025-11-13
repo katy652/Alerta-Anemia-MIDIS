@@ -29,13 +29,8 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
-MODEL_URL = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
-MODEL_PATH = "modelo_anemia.joblib"
-gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
-
-# Cargar el modelo
-modelo = joblib.load(MODEL_PATH)
-
+MODEL_FILENAME = "modelo_anemia.joblib"
+COLUMNS_FILENAME = "modelo_columns.joblib"
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -821,4 +816,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
