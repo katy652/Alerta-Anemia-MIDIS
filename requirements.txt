@@ -8,4 +8,5 @@ supabase
 scikit-learn
 gdown
 plotly
+psycopg2-binary
 
