@@ -11,7 +11,7 @@ import re
 import os
 import plotly.express as px
 import gdown
-
+import plotly.express as px
 # ==============================================================================
 # 1. CONFIGURACIÓN INICIAL Y CARGA DE MODELO
 # ==============================================================================
@@ -34,14 +34,6 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 MODEL_FILENAME = "modelo_anemia.joblib"
 COLUMNS_FILENAME = "modelo_columns.joblib"
 
-# NOTA CRÍTICA PARA EL DESPLIEGUE:
-# Los archivos .joblib (modelo y columnas) DEBEN ser descargados de Google Drive y
-# SUBIDOS al mismo repositorio de GitHub que contiene este archivo (app.py).
-# La aplicación los buscará automáticamente con estos nombres.
-
-# Archivos de Drive proporcionados:
-# - modelo_columns.joblib (ID: 1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK - Revisar)
-# - modelo_anemia.joblib (ID: 1005dx_FEvPQajPOXT9BZKPBWmKvj0RU1 - Revisar)
 # ============================
 # DESCARGA DE ARCHIVOS
 # ============================
@@ -857,6 +849,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
