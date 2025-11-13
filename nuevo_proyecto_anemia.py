@@ -32,14 +32,29 @@ UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 # --- Nombres de Archivo ---
 
 URL_DEL_MODELO = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
-COLUMNS_URL = "https://drive.google.com/uc?id=1005dx_FEvPQajPOXT9BZKPBWmKvj0RU1"
+URL_COLUMNAS = "https://drive.google.com/uc?id=1005dx_FEvPQajPOXT9BZKPBWmKvj0RU1"
 
 MODEL_FILENAME = "modelo_anemia.joblib"
-COLUMNS_FILENAME = "modelo_columns.joblib"
+COLUMN_FILENAME = "modelo_columns.joblib"
 
-# Descarga
-gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
-gdown.download(COLUMNS_URL, COLUMNS_FILENAME, quiet=False)
+# --- Descarga de Archivos ---
+if not os.path.exists(MODEL_FILENAME):
+    with st.spinner("Descargando modelo desde Google Drive..."):
+        gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
+        st.success("✅ Modelo descargado correctamente.")
+
+if not os.path.exists(COLUMN_FILENAME):
+    with st.spinner("Descargando columnas desde Google Drive..."):
+        gdown.download(URL_COLUMNAS, COLUMN_FILENAME, quiet=False)
+        st.success("✅ Columnas cargadas correctamente.")
+
+# --- Cargar modelo ---
+try:
+    modelo = joblib.load(MODEL_FILENAME)
+    columnas = joblib.load(COLUMN_FILENAME)
+    st.success("🧠 Modelo y columnas cargadas correctamente.")
+except Exception as e:
+    st.error(f"❌ Error al cargar modelo o columnas: {e}")
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -825,6 +840,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
