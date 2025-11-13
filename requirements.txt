@@ -1,12 +1,15 @@
 streamlit
 pandas
 numpy
+joblib
+scikit-learn
+plotly
+matplotlib
+seaborn
 unidecode
 fpdf2
-joblib
-supabase
-scikit-learn
-gdown
-plotly
+supabase-py
 psycopg2-binary
+gdown
+trama
 
