@@ -35,26 +35,38 @@ URL_DEL_MODELO = "https://drive.google.com/uc?id=1vij71K2DtTHEc1seEOqeYk-fV2AQNf
 URL_COLUMNAS = "https://drive.google.com/uc?id=1005dx_FEvPQajPOXT9BZKPBWmKvj0RU1"
 
 MODEL_FILENAME = "modelo_anemia.joblib"
-COLUMN_FILENAME = "modelo_columns.joblib"
+COLUMNS_FILENAME = "modelo_columns.joblib"
 
-# --- Descarga de Archivos ---
-if not os.path.exists(MODEL_FILENAME):
-    with st.spinner("Descargando modelo desde Google Drive..."):
-        gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
-        st.success("✅ Modelo descargado correctamente.")
+# ============================
+# DESCARGA DE ARCHIVOS
+# ============================
 
-if not os.path.exists(COLUMN_FILENAME):
-    with st.spinner("Descargando columnas desde Google Drive..."):
-        gdown.download(URL_COLUMNAS, COLUMN_FILENAME, quiet=False)
-        st.success("✅ Columnas cargadas correctamente.")
+def descargar_modelo_y_columnas():
+    status_area = st.empty()
 
-# --- Cargar modelo ---
-try:
-    modelo = joblib.load(MODEL_FILENAME)
-    columnas = joblib.load(COLUMN_FILENAME)
-    st.success("🧠 Modelo y columnas cargadas correctamente.")
-except Exception as e:
-    st.error(f"❌ Error al cargar modelo o columnas: {e}")
+    try:
+        with status_area.container():
+            st.info("🔽 Descargando modelo desde Google Drive...")
+
+            # --- Descargar modelo si no existe ---
+            if not os.path.exists(MODEL_FILENAME):
+                gdown.download(URL_DEL_MODELO, MODEL_FILENAME, quiet=False)
+
+            st.success("✅ Modelo descargado correctamente.")
+
+            # --- Descargar columnas si no existe ---
+            if not os.path.exists(COLUMNS_FILENAME):
+                gdown.download(URL_COLUMNAS, COLUMNS_FILENAME, quiet=False)
+
+            st.success("✅ Archivo de columnas cargado correctamente.")
+
+    except Exception as e:
+        status_area.error(f"❌ Error al descargar archivos: {e}")
+
+# ============================
+# LLAMAR A LA FUNCIÓN
+# ============================
+descargar_modelo_y_columnas()
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -840,6 +852,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
