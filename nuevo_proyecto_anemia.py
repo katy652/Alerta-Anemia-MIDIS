@@ -30,30 +30,40 @@ UMBRAL_MODERADA = 9.0
 UMBRAL_HEMOGLOBINA_ANEMIA = 11.0
 
 # --- Nombres de Archivo ---
-
 MODEL_FILENAME = "modelo_anemia.joblib"
-DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK"
+# AÑADIR ESTA CONSTANTE
+DRIVE_FILE_ID = "1vij71K2DtTHEc1seEOqeYk-fV2AQNfBK" 
+COLUMNS_FILENAME = "modelo_columns.joblib"
 
-def download_file_from_drive(file_id, output):
-    try:
-        url = f"https://drive.google.com/uc?id={file_id}"
-        gdown.download(url, output, quiet=False, fuzzy=True)
-    except Exception as e:
-        st.error(f"Error descargando archivo: {e}")
-        st.stop()
+def download_file_from_google_drive(id, destination):
+    """Descarga un archivo grande de Google Drive a una ubicación local."""
+    
+    # URL de descarga de Google Drive (cambia el 'view' por 'uc')
+    URL = "https://docs.google.com/uc?export=download"
 
-# --- DESCARGA AUTOMÁTICA ---
-if not os.path.exists(MODEL_FILENAME):
-    st.warning("Descargando modelo desde Google Drive...")
-    download_file_from_drive(DRIVE_FILE_ID, MODEL_FILENAME)
+    session = requests.Session()
 
-# --- CARGA DEL MODELO ---
-try:
-    model = joblib.load(MODEL_FILENAME)
-    st.success("Modelo cargado correctamente.")
-except Exception as e:
-    st.error(f"CRÍTICO: No se pudo cargar el modelo. Detalles: {e}")
-    st.stop()
+    response = session.get(URL, params = { 'id' : id }, stream = True)
+    token = get_confirm_token(response)
+
+    if token:
+        params = { 'id' : id, 'confirm' : token }
+        response = session.get(URL, params = params, stream = True)
+
+    chunk_size = 32768
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(chunk_size):
+            if chunk: # filtrar los chunks vacíos
+                f.write(chunk)
+                
+    return os.path.exists(destination)
+
+def get_confirm_token(response):
+    """Extrae el token de confirmación necesario para descargar archivos grandes."""
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 # ===================================================================
 # CONFIGURACIÓN Y CLAVES DE SUPABASE
 # ===================================================================
@@ -839,6 +849,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
