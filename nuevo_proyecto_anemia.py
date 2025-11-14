@@ -63,6 +63,22 @@ class MockSupabaseClient:
             return False
         return False
 
+    def get_all_records(self):
+        # Obtiene todos los registros para el historial y dashboard
+        df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
+        if not df.empty:
+            # Asegurar tipos de datos para evitar errores en el editor o gráficos
+            df['Hb Inicial'] = pd.to_numeric(df['Hb Inicial'], errors='coerce')
+            df['ID_DB'] = pd.to_numeric(df['ID_DB'], errors='coerce', downcast='integer')
+            df['Fecha Alerta'] = pd.to_datetime(df['Fecha Alerta'], errors='coerce')
+            # Las columnas de texto deben ser strings
+            df['Estado'] = df['Estado'].astype(str)
+            df['Riesgo'] = df['Riesgo'].astype(str)
+            df['Nombre'] = df['Nombre'].astype(str)
+            df['DNI'] = df['DNI'].astype(str)
+        return df
+
+
 # Inicializar el cliente simulado de Supabase
 DB_CLIENT = MockSupabaseClient()
 
@@ -129,13 +145,16 @@ def registrar_alerta_db(alerta_data):
 
 def obtener_alertas_pendientes_o_seguimiento():
     # Consulta (simulada) para obtener registros activos
-    def filter_active(df):
-        return df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])]
-        
-    df = DB_CLIENT.select('alertas_anemia', filter_active)
+    df = DB_CLIENT.get_all_records()
     
-    if not df.empty:
-        return df.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
+    if df.empty:
+        return pd.DataFrame()
+        
+    df_filtered = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])].copy()
+        
+    if not df_filtered.empty:
+        # Aseguramos que 'ID_DB' es la clave de ordenamiento
+        return df_filtered.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
     return pd.DataFrame()
 
 def actualizar_estado_alerta(id_gestion, nuevo_estado):
@@ -143,12 +162,7 @@ def actualizar_estado_alerta(id_gestion, nuevo_estado):
     return DB_CLIENT.update('alertas_anemia', id_gestion, nuevo_estado)
 
 def obtener_todos_los_registros():
-    df = DB_CLIENT.select('alertas_anemia')
-    
-    if not df.empty:
-        # Aseguramos que los tipos sean correctos para el dashboard
-        df['Hb Inicial'] = pd.to_numeric(df['Hb Inicial'])
-        df['Fecha Alerta'] = pd.to_datetime(df['Fecha Alerta'])
+    df = DB_CLIENT.get_all_records()
     return df.sort_values(by='ID_DB', ascending=False)
 
 # ==============================================================================
@@ -499,6 +513,7 @@ def vista_monitoreo():
         
         df_display = df_monitoreo[cols_to_display].copy()
         
+        # CORRECCIÓN DE ERROR: Asegurar que los tipos de columna son compatibles con st.data_editor
         edited_df = st.data_editor(
             df_display,
             column_config={
@@ -506,7 +521,12 @@ def vista_monitoreo():
                 "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
                 "ID_GESTION": None, # Ocultar la clave compuesta
                 "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True),
-                "Fecha Alerta": st.column_config.DatetimeColumn("Fecha Alerta", format="YYYY-MM-DD HH:mm")
+                # El formato de fecha/hora en Streamlit puede ser sensible. Usamos string para compatibilidad.
+                "Fecha Alerta": st.column_config.DatetimeColumn("Fecha Alerta", format="YYYY-MM-DD HH:mm:ss", disabled=True),
+                "Hb Inicial": st.column_config.NumberColumn("Hb Inicial (g/dL)", format="%.1f", disabled=True),
+                "DNI": st.column_config.TextColumn("DNI", disabled=True),
+                "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
+                "Riesgo": st.column_config.TextColumn("Riesgo", disabled=True),
             },
             hide_index=True,
             key="monitoreo_data_editor"
@@ -517,7 +537,8 @@ def vista_monitoreo():
         if not df_monitoreo.empty:
             for index, row in edited_df.iterrows():
                 original_row = df_monitoreo.loc[index]
-                if index in df_monitoreo.index and row['Estado'] != original_row['Estado']:
+                # Comparar solo si el índice existe en el dataframe original
+                if row['Estado'] != original_row['Estado']:
                     # Usamos ID_GESTION para asegurar la unicidad en el mock
                     success = actualizar_estado_alerta(original_row['ID_GESTION'], row['Estado'])
                     if success:
@@ -575,8 +596,21 @@ def vista_dashboard():
     # Asegurarse de que las fechas sean datetime para series temporales
     df_historial['Fecha Alerta'] = pd.to_datetime(df_historial['Fecha Alerta'])
     # Agrupamos por mes para la tendencia
-    df_tendencia = df_historial.set_index('Fecha Alerta').resample('M').size().reset_index(name='Alertas Registradas')
-    
+    # Para evitar errores con resample si solo hay un registro, rellenamos datos.
+    if not df_historial.empty:
+        min_date = df_historial['Fecha Alerta'].min()
+        max_date = df_historial['Fecha Alerta'].max()
+        # Crear un rango de fechas si es necesario
+        if min_date.date() == max_date.date():
+             date_range = pd.to_datetime([min_date, max_date + pd.Timedelta(days=1)])
+        else:
+             date_range = pd.to_datetime([min_date, max_date])
+             
+        df_tendencia = df_historial.set_index('Fecha Alerta').resample('M').size().reset_index(name='Alertas Registradas')
+    else:
+        df_tendencia = pd.DataFrame(columns=['Fecha Alerta', 'Alertas Registradas'])
+
+
     # --- FILTROS ---
     st.sidebar.header("Filtros del Dashboard")
     regiones_disponibles = sorted(df_historial['Region'].unique())
