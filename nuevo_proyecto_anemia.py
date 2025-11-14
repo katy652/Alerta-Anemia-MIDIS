@@ -1,6 +1,6 @@
 import streamlit as st
-# Necesitas instalar 'fpdf' (o 'fpdf2' si usas versiones recientes, pero la FPDF original es más compatible con el código legado) y 'unidecode'
-# pip install streamlit fpdf unidecode pandas plotly twilio (para el envío real)
+# Necesitas instalar 'fpdf', 'unidecode', 'pandas', 'plotly', y opcionalmente 'twilio' para el envío real
+# pip install streamlit fpdf unidecode pandas plotly twilio
 from fpdf import FPDF
 import unidecode
 import datetime
@@ -8,6 +8,14 @@ import pandas as pd
 import plotly.express as px
 import random
 # Importar la lógica del modelo mock, no el modelo real.
+try:
+    # Intenta importar Twilio Client, que se usará si las credenciales son reales
+    from twilio.rest import Client
+    TWILIO_CLIENT_AVAILABLE = True
+except ImportError:
+    # Si la librería no está instalada, no es un problema para la simulación
+    TWILIO_CLIENT_AVAILABLE = False
+
 
 # ==============================================================================
 # 0. CONFIGURACIÓN DE PÁGINA (SOLUCIÓN AL ANCHO ANGOSTO)
@@ -327,47 +335,51 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     return bytes(pdf.output(dest='S'))
 
 # ==============================================================================
-# 5. INTEGRACIÓN DE ALERTA POR SMS (TWILIO SIMULADO)
+# 5. INTEGRACIÓN DE ALERTA POR SMS (TWILIO REAL O SIMULADO)
 # ==============================================================================
 
 def enviar_alerta_sms_twilio(celular, nombre, dni, riesgo, gravedad):
     """
-    Función que simula el envío de una alerta por SMS usando Twilio.
-    EN PRODUCCIÓN: Debes reemplazar esta lógica con el cliente real de Twilio.
+    Función que gestiona el envío de una alerta por SMS.
+    Si se configuran las credenciales de Twilio, el envío será REAL.
+    De lo contrario, realiza una simulación.
     """
-    # 🛑 REEMPLAZA ESTAS VARIABLES EN PRODUCCIÓN CON TUS CLAVES REALES DE TWILIO
+    # 🛑 INSTRUCCIONES: REEMPLAZA ESTAS VARIABLES CON TUS CLAVES REALES DE TWILIO
+    # Si las dejas con los valores 'ACxxx', se ejecutará la SIMULACIÓN.
     ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     AUTH_TOKEN = "your_auth_token"
-    TWILIO_NUMBER = "+15017122661"  # Tu número Twilio
+    TWILIO_NUMBER = "+15017122661"  # Tu número Twilio asignado
 
     # CORRECCIÓN: Usar 'dni' directamente en lugar de session_state
-    mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {dni}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE."
+    mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {dni}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE. Reporte en PDF adjunto."
     
     # -------------------------------------------------------------------------
-    # SIMULACIÓN DEL ENVÍO:
+    # LÓGICA DE ENVÍO REAL vs. SIMULACIÓN
     # -------------------------------------------------------------------------
     
-    if ACCOUNT_SID.startswith("ACx"):
-        # Simulación
+    if ACCOUNT_SID.startswith("ACx") or not TWILIO_CLIENT_AVAILABLE:
+        # Simulación si no hay credenciales reales o si Twilio no está instalado
         st.info(f"📲 Alerta SMS **SIMULADA** enviada al número: {celular}. \n\n*Mensaje:* {mensaje}")
+        if not TWILIO_CLIENT_AVAILABLE:
+            st.warning("⚠️ Twilio no está instalado (`pip install twilio`). Solo se puede realizar la simulación.")
         return True
     
     # -------------------------------------------------------------------------
-    # LÓGICA DE ENVÍO REAL (DESCOMENTAR EN PRODUCCIÓN)
+    # LÓGICA DE ENVÍO REAL (solo si las credenciales son válidas y Twilio está disponible)
     # -------------------------------------------------------------------------
-    # from twilio.rest import Client
-    # try:
-    #     client = Client(ACCOUNT_SID, AUTH_TOKEN)
-    #     client.messages.create(
-    #         to=celular,
-    #         from_=TWILIO_NUMBER,
-    #         body=mensaje
-    #     )
-    #     st.success(f"✅ Alerta SMS real enviada con éxito a {celular}.")
-    #     return True
-    # except Exception as e:
-    #     st.error(f"❌ ERROR: No se pudo enviar el SMS real. Revise sus credenciales de Twilio o el formato del número. Detalle: {e}")
-    #     return False
+    else:
+        try:
+            client = Client(ACCOUNT_SID, AUTH_TOKEN)
+            client.messages.create(
+                to=celular,
+                from_=TWILIO_NUMBER,
+                body=mensaje
+            )
+            st.success(f"✅ Alerta SMS **REAL** enviada con éxito a {celular}.")
+            return True
+        except Exception as e:
+            st.error(f"❌ ERROR: No se pudo enviar el SMS real. Revise sus credenciales de Twilio, el formato del número (debe incluir código de país, ej. +519XXXXXXXX), y que el número de Twilio esté configurado. Detalle: {e}")
+            return False
 
 
 # ==============================================================================
@@ -404,7 +416,7 @@ def vista_prediccion():
         col_dni, col_nombre, col_celular = st.columns(3)
         with col_dni: dni = st.text_input("DNI del Paciente", max_chars=8, placeholder="Solo 8 dígitos")
         with col_nombre: nombre = st.text_input("Nombre y Apellido", placeholder="Ej: Ana Torres")
-        with col_celular: celular = st.text_input("Celular de Contacto (9 dígitos)", max_chars=15, placeholder="+51 9XXXXXXXX")
+        with col_celular: celular = st.text_input("Celular de Contacto (Ej: +519XXXXXXXX)", max_chars=15, placeholder="+51 9XXXXXXXX")
         st.markdown("---")
         
         st.subheader("1. Factores Clínicos y Demográficos Clave")
@@ -453,7 +465,7 @@ def vista_prediccion():
         if predict_button:
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
-            if not celular: st.error("Por favor, ingrese un número de celular de contacto."); return
+            if not celular: st.error("Por favor, ingrese un número de celular de contacto (ej: +519XXXXXXXX)."); return
             
             # Altitud y Clima usan los valores calculados/asignados
             data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud_calculada, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro, 'Celular': celular}
@@ -481,7 +493,6 @@ def vista_prediccion():
             registrar_alerta_db(alerta_data)
             
             # Intenta enviar alerta por celular
-            # CORRECCIÓN: Pasamos el DNI directamente a la función
             enviar_alerta_sms_twilio(celular, nombre, dni, resultado_final, gravedad_anemia)
 
             # Guardar resultados en session_state y recargar
@@ -489,17 +500,14 @@ def vista_prediccion():
             st.session_state.prob_alto_riesgo = prob_alto_riesgo
             st.session_state.gravedad_anemia = gravedad_anemia
             st.session_state.sugerencias_finales = sugerencias_finales
-            st.session_state.data_reporte = data # <-- Ahora esta asignación se hace antes de usarse de nuevo.
+            st.session_state.data_reporte = data 
             st.session_state.hb_corregida = hb_corregida
             st.session_state.correccion_alt = correccion_alt
             st.session_state.prediction_done = True
-            # No usamos st.rerun() aquí para evitar ciclos de re-ejecución innecesarios
-            # después de una predicción exitosa, solo dejamos que el script continúe
-            # y muestre los resultados.
+            # No usamos st.rerun() aquí.
 
     # Mostrar resultados después de la predicción
     if st.session_state.prediction_done:
-        # Nota: Aquí se accede a st.session_state.data_reporte, que ahora está garantizado que existe
         resultado_final = st.session_state.resultado
         prob_alto_riesgo = st.session_state.prob_alto_riesgo
         gravedad_anemia = st.session_state.gravedad_anemia
@@ -516,10 +524,6 @@ def vista_prediccion():
         col_res1, col_res2, col_res3 = st.columns(3)
         with col_res1: st.metric(label="Hemoglobina Medida (g/dL)", value=data_reporte['Hemoglobina_g_dL'])
         
-        # Corrección del formato de la corrección de altitud
-        # La corrección es aditiva, si es negativa, significa que la altitud baja la Hb
-        # Para Perú, la corrección siempre suma (Hb_corregida = Hb_medida + correccion),
-        # por lo que el valor en el metric debe ser positivo.
         with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"+{correccion_alt:.1f} g/dL")
         
         with col_res3: st.metric(label="Hemoglobina Corregida (g/dL)", value=f"**{hb_corregida:.1f}**", delta=f"Gravedad: {gravedad_anemia}")
@@ -805,6 +809,13 @@ def main():
         # La conexión a Supabase es simulada, pero usamos la persistencia de sesión
         if DB_CLIENT.is_connected: st.success("✅ DB Conectada (Persistencia en Sesión)")
         else: st.error("❌ DB Desconectada")
+        
+        # Muestra la advertencia si Twilio no está disponible (para el envío real)
+        st.markdown("### Estado de SMS")
+        if not TWILIO_CLIENT_AVAILABLE:
+            st.warning("⚠️ Módulo Twilio NO detectado. SMS solo en MODO SIMULACIÓN.")
+        else:
+             st.info("✅ Módulo Twilio detectado. Si las credenciales son válidas, enviará SMS REALES.")
         
     if seleccion == "Predicción y Reporte":
         vista_prediccion()
