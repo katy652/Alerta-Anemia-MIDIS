@@ -330,7 +330,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 # 5. INTEGRACIÓN DE ALERTA POR SMS (TWILIO SIMULADO)
 # ==============================================================================
 
-def enviar_alerta_sms_twilio(celular, nombre, riesgo, gravedad):
+def enviar_alerta_sms_twilio(celular, nombre, dni, riesgo, gravedad):
     """
     Función que simula el envío de una alerta por SMS usando Twilio.
     EN PRODUCCIÓN: Debes reemplazar esta lógica con el cliente real de Twilio.
@@ -340,7 +340,8 @@ def enviar_alerta_sms_twilio(celular, nombre, riesgo, gravedad):
     AUTH_TOKEN = "your_auth_token"
     TWILIO_NUMBER = "+15017122661"  # Tu número Twilio
 
-    mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {st.session_state.data_reporte['DNI']}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE."
+    # CORRECCIÓN: Usar 'dni' directamente en lugar de session_state
+    mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {dni}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE."
     
     # -------------------------------------------------------------------------
     # SIMULACIÓN DEL ENVÍO:
@@ -480,14 +481,15 @@ def vista_prediccion():
             registrar_alerta_db(alerta_data)
             
             # Intenta enviar alerta por celular
-            enviar_alerta_sms_twilio(celular, nombre, resultado_final, gravedad_anemia)
+            # CORRECCIÓN: Pasamos el DNI directamente a la función
+            enviar_alerta_sms_twilio(celular, nombre, dni, resultado_final, gravedad_anemia)
 
             # Guardar resultados en session_state y recargar
             st.session_state.resultado = resultado_final
             st.session_state.prob_alto_riesgo = prob_alto_riesgo
             st.session_state.gravedad_anemia = gravedad_anemia
             st.session_state.sugerencias_finales = sugerencias_finales
-            st.session_state.data_reporte = data
+            st.session_state.data_reporte = data # <-- Ahora esta asignación se hace antes de usarse de nuevo.
             st.session_state.hb_corregida = hb_corregida
             st.session_state.correccion_alt = correccion_alt
             st.session_state.prediction_done = True
@@ -497,6 +499,7 @@ def vista_prediccion():
 
     # Mostrar resultados después de la predicción
     if st.session_state.prediction_done:
+        # Nota: Aquí se accede a st.session_state.data_reporte, que ahora está garantizado que existe
         resultado_final = st.session_state.resultado
         prob_alto_riesgo = st.session_state.prob_alto_riesgo
         gravedad_anemia = st.session_state.gravedad_anemia
