@@ -25,6 +25,34 @@ def registrar_alerta_db(data):
     # Mock: Simula el registro en la base de datos (Supabase)
     if get_supabase_client():
         st.toast(f"✅ Caso DNI {data['DNI']} registrado/actualizado en DB (Mock).", icon='💾')
+        # Simula la persistencia al actualizar el mock
+        if 'alerta_data_storage' not in st.session_state:
+            st.session_state.alerta_data_storage = []
+        
+        # Crear ID de gestión único basado en DNI y fecha actual (para el mock)
+        id_gestion = f"{data['DNI']}_{datetime.date.today().isoformat()}"
+
+        # Simular una nueva entrada para el historial (solo si es nuevo o se debe actualizar)
+        new_record = {
+            'ID_DB': np.random.randint(1000, 9999), # ID aleatorio para mock
+            'DNI': data['DNI'],
+            'Nombre': data['Nombre_Apellido'],
+            'Hb Inicial': data['Hemoglobina_g_dL'],
+            'Riesgo': data['riesgo'],
+            'Fecha Alerta': datetime.date.today().isoformat(),
+            'Estado': 'PENDIENTE (IA/VULNERABILIDAD)' if 'ALTO RIESGO' in data['riesgo'] or 'MEDIO RIESGO' in data['riesgo'] else 'REGISTRADO',
+            'Sugerencias': ' | '.join(data['sugerencias']),
+            'ID_GESTION': id_gestion,
+            'Region': data['Region']
+        }
+        
+        # Eliminar registros antiguos con el mismo DNI/Fecha para simular UPDATE
+        st.session_state.alerta_data_storage = [
+            r for r in st.session_state.alerta_data_storage 
+            if r['DNI'] != data['DNI'] or r['Fecha Alerta'] != new_record['Fecha Alerta']
+        ]
+        
+        st.session_state.alerta_data_storage.append(new_record)
         return True
     else:
         st.toast(f"❌ Falló el registro de caso DNI {data['DNI']} (DB Desconectada - Mock).", icon='❌')
@@ -32,44 +60,73 @@ def registrar_alerta_db(data):
 
 def obtener_alertas_pendientes_o_seguimiento():
     # Mock: Retorna un DataFrame de ejemplo para el monitoreo
-    data = {
-        'ID_DB': [101, 102, 103],
-        'DNI': ['78901234', '12345678', '99887766'],
-        'Nombre': ['Juan Perez', 'Maria Lopez', 'Carlos Soto'],
-        'Hb Inicial': [9.5, 10.8, 8.0],
-        'Riesgo': ['ALTO RIESGO (Alerta Clínica - SEVERA)', 'RIESGO MEDIO (Vulnerabilidad ML)', 'ALTO RIESGO (Predicción ML - MODERADA)'],
-        'Fecha Alerta': [datetime.date(2025, 10, 1), datetime.date(2025, 10, 5), datetime.date(2025, 10, 10)],
-        'Estado': ['PENDIENTE (CLÍNICO URGENTE)', 'EN SEGUIMIENTO', 'PENDIENTE (IA/VULNERABILIDAD)'],
-        'Sugerencias': ['🚨🚨 Necesita transfusión | PRIORIDAD CLÍNICA', '💊 Suplemento | 🍲 Dieta | REVISAR ADHERENCIA', '🔴 CRITICO | 📚 Educación | VULNERABILIDAD EDUCATIVA'],
-        'ID_GESTION': ['78901234_2025-10-01', '12345678_2025-10-05', '99887766_2025-10-10'],
-        'Region': ['PUNO (Sierra Alta)', 'LIMA (Metropolitana y Provincia)', 'JUNÍN (Andes)']
-    }
-    df = pd.DataFrame(data)
-    df['Fecha Alerta'] = df['Fecha Alerta'].astype(str)
-    return df
+    if 'alerta_data_storage' not in st.session_state or not st.session_state.alerta_data_storage:
+        # Datos iniciales si la simulación de registro aún no ha ocurrido
+        data = {
+            'ID_DB': [101, 102, 103],
+            'DNI': ['78901234', '12345678', '99887766'],
+            'Nombre': ['Juan Perez', 'Maria Lopez', 'Carlos Soto'],
+            'Hb Inicial': [9.5, 10.8, 8.0],
+            'Riesgo': ['ALTO RIESGO (Alerta Clínica - SEVERA)', 'RIESGO MEDIO (Vulnerabilidad ML)', 'ALTO RIESGO (Predicción ML - MODERADA)'],
+            'Fecha Alerta': [datetime.date(2025, 10, 1).isoformat(), datetime.date(2025, 10, 5).isoformat(), datetime.date(2025, 10, 10).isoformat()],
+            'Estado': ['PENDIENTE (CLÍNICO URGENTE)', 'EN SEGUIMIENTO', 'PENDIENTE (IA/VULNERABILIDAD)'],
+            'Sugerencias': ['🚨🚨 Necesita transfusión | PRIORIDAD CLÍNICA', '💊 Suplemento | 🍲 Dieta | REVISAR ADHERENCIA', '🔴 CRITICO | 📚 Educación | VULNERABILIDAD EDUCATIVA'],
+            'ID_GESTION': ['78901234_2025-10-01', '12345678_2025-10-05', '99887766_2025-10-10'],
+            'Region': ['PUNO (Sierra Alta)', 'LIMA (Metropolitana y Provincia)', 'JUNÍN (Andes)']
+        }
+        df = pd.DataFrame(data)
+        st.session_state.alerta_data_storage = df.to_dict('records') # Inicializar el mock storage
+    
+    # Filtrar solo los estados activos
+    df_storage = pd.DataFrame(st.session_state.alerta_data_storage)
+    df_monitoreo = df_storage[df_storage['Estado'].isin(['PENDIENTE (CLÍNICO URGENTE)', 'PENDIENTE (IA/VULNERABILIDAD)', 'EN SEGUIMIENTO'])].copy()
+    
+    # Conversión de lista de sugerencias a string para la visualización si se usó el registro
+    if df_monitoreo['Sugerencias'].apply(lambda x: isinstance(x, list)).any():
+         df_monitoreo['Sugerencias'] = df_monitoreo['Sugerencias'].apply(lambda x: ' | '.join(x) if isinstance(x, list) else x)
+
+    return df_monitoreo.reset_index(drop=True)
 
 def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
-    # Mock: Simula la actualización del estado
-    return True # Siempre exitoso en el mock
+    # Mock: Simula la actualización del estado en el session_state
+    if 'alerta_data_storage' in st.session_state:
+        for i, record in enumerate(st.session_state.alerta_data_storage):
+            if record['DNI'] == dni and record['Fecha Alerta'] == fecha_alerta:
+                st.session_state.alerta_data_storage[i]['Estado'] = nuevo_estado
+                return True
+    return False # Siempre exitoso en el mock
 
 def obtener_todos_los_registros():
     # Mock: Retorna un DataFrame completo de ejemplo para el historial y dashboard
-    df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
-    df_resuelto = pd.DataFrame({
+    if 'alerta_data_storage' not in st.session_state:
+        # Llama a la función de monitoreo para inicializar el storage si es necesario
+        df_monitoreo_inicial = obtener_alertas_pendientes_o_seguimiento()
+        df_base = df_monitoreo_inicial
+    else:
+        df_base = pd.DataFrame(st.session_state.alerta_data_storage)
+
+    # Añadir registros resueltos de ejemplo (solo si no están ya en el storage)
+    df_resuelto_ejemplo = pd.DataFrame({
         'ID_DB': [104, 105, 106, 107],
         'DNI': ['11112222', '33334444', '55556666', '77778888'],
         'Nombre': ['Laura Gomez', 'Pedro Flores', 'Sofia Torres', 'Ricardo Diaz'],
         'Hb Inicial': [12.5, 13.0, 11.2, 9.8],
         'Riesgo': ['RIESGO BAJO', 'RIESGO MEDIO (Vulnerabilidad ML)', 'RIESGO BAJO', 'ALTO RIESGO (Alerta Clínica - MODERADA)'],
-        'Fecha Alerta': [datetime.date(2025, 9, 15), datetime.date(2025, 8, 20), datetime.date(2025, 10, 1), datetime.date(2025, 11, 10)],
+        'Fecha Alerta': [datetime.date(2025, 9, 15).isoformat(), datetime.date(2025, 8, 20).isoformat(), datetime.date(2025, 10, 1).isoformat(), datetime.date(2025, 11, 10).isoformat()],
         'Estado': ['RESUELTO', 'CERRADO (NO APLICA)', 'REGISTRADO', 'PENDIENTE (CLÍNICO URGENTE)'],
         'Sugerencias': ['✅ Ok', '💰 Social | 👶 Edad', '✅ Ok', '🔴 CRITICO'],
         'ID_GESTION': ['11112222_2025-09-15', '33334444_2025-08-20', '55556666_2025-10-01', '77778888_2025-11-10'],
         'Region': ['ICA', 'LORETO', 'AREQUIPA', 'PUNO (Sierra Alta)']
     })
-    df_historial = pd.concat([df_monitoreo, df_resuelto], ignore_index=True)
-    df_historial['Fecha Alerta'] = df_historial['Fecha Alerta'].astype(str)
-    return df_historial
+
+    # Concatenar todos los datos, asegurándose de que no haya duplicados basados en ID_GESTION o DNI+Fecha
+    df_historial = pd.concat([df_base, df_resuelto_ejemplo], ignore_index=True).drop_duplicates(subset=['DNI', 'Fecha Alerta'], keep='last')
+    
+    # Conversión de lista de sugerencias a string para la visualización
+    if df_historial['Sugerencias'].apply(lambda x: isinstance(x, list)).any():
+        df_historial['Sugerencias'] = df_historial['Sugerencias'].apply(lambda x: ' | '.join(x) if isinstance(x, list) else x)
+        
+    return df_historial.sort_values(by='Fecha Alerta', ascending=False).reset_index(drop=True)
 
 # --- MOCK: Funciones de Cálculo de Altitud/Clima/Clasificación ---
 
@@ -84,7 +141,7 @@ def get_clima_por_region(region):
     altitud = get_altitud_por_region(region)
     if altitud >= 3500: return "Andino Alto (Frio Extremo)"
     if altitud >= 1500: return "Andino Medio (Templado/Frio)"
-    if altitud < 1500 and 'LORETO' in region or 'UCAYALI' in region: return "Selva Media/Baja (Cálido Húmedo)"
+    if altitud < 1500 and ('LORETO' in region or 'UCAYALI' in region or 'AMAZONAS' in region or 'SAN MARTÍN' in region or 'MADRE DE DIOS' in region): return "Selva Media/Baja (Cálido Húmedo)"
     return "Costa/Urbano (Cálido/Seco)"
 
 def clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_m):
@@ -99,6 +156,7 @@ def clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_m):
     hb_corregida = max(hb_corregida, 5.0)
 
     # 2. Determinación del Umbral (OMS para 6 a 59 meses)
+    # Se utiliza el umbral de 11.0 g/dL para este rango de edad (6 a 59 meses)
     umbral_clinico = 11.0
 
     # 3. Clasificación de Gravedad (OMS para 6-59 meses)
@@ -266,7 +324,7 @@ def vista_prediccion():
         "LIMA (Metropolitana y Provincia)", "CALLAO (Provincia Constitucional)",
         "PIURA", "LAMBAYEQUE", "LA LIBERTAD", "ICA", "TUMBES", "ÁNCASH (Costa)",
         "HUÁNUCO", "JUNÍN (Andes)", "CUSCO (Andes)", "AYACUCHO", "APURÍMAC",
-        "CAJAMARCA", "AREQUIPA", "MOQUEGUA", "TACNA",
+        "CAJAMARCA", "AREQUIPA", "MOQUEGUE", "TACNA",
         "PUNO (Sierra Alta)", "HUANCAVELICA (Sierra Alta)", "PASCO",
         "LORETO", "AMAZONAS", "SAN MARTÍN", "UCAYALI", "MADRE DE DIOS",
         "OTRO / NO ESPECIFICADO"
@@ -275,15 +333,15 @@ def vista_prediccion():
     with st.form("formulario_prediccion"):
         st.subheader("0. Datos de Identificación y Contacto")
         col_dni, col_nombre = st.columns(2)
-        with col_dni: dni = st.text_input("DNI del Paciente", max_chars=8, placeholder="Solo 8 dígitos")
-        with col_nombre: nombre = st.text_input("Nombre y Apellido", placeholder="Ej: Ana Torres")
+        with col_dni: dni = st.text_input("DNI del Paciente", max_chars=8, placeholder="Solo 8 dígitos", key="dni_input")
+        with col_nombre: nombre = st.text_input("Nombre y Apellido", placeholder="Ej: Ana Torres", key="nombre_input")
         st.markdown("---")
         
         st.subheader("1. Factores Clínicos y Demográficos Clave")
         col_h, col_e, col_r = st.columns(3)
-        with col_h: hemoglobina = st.number_input("Hemoglobina (g/dL) - CRÍTICO", min_value=5.0, max_value=18.0, value=10.5, step=0.1)
-        with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36)
-        with col_r: region = st.selectbox("Región (Define Altitud y Clima)", options=REGIONES_PERU)
+        with col_h: hemoglobina = st.number_input("Hemoglobina (g/dL) - CRÍTICO", min_value=5.0, max_value=18.0, value=10.5, step=0.1, key="hb_input")
+        with col_e: edad_meses = st.slider("Edad (meses)", min_value=12, max_value=60, value=36, key="edad_input")
+        with col_r: region = st.selectbox("Región (Define Altitud y Clima)", options=REGIONES_PERU, key="region_input")
         
         # 🛑 Altitud se calcula automáticamente
         altitud_calculada = get_altitud_por_region(region)
@@ -302,21 +360,21 @@ def vista_prediccion():
             st.markdown(f"*{clima}*")
             st.info(f"El clima asignado automáticamente para **{region}** es: **{clima}**.")
             
-        with col_ed: educacion_madre = st.selectbox("Nivel Educ. Madre", options=["Secundaria", "Primaria", "Superior Técnica", "Universitaria", "Inicial", "Sin Nivel"])
+        with col_ed: educacion_madre = st.selectbox("Nivel Educ. Madre", options=["Secundaria", "Primaria", "Superior Técnica", "Universitaria", "Inicial", "Sin Nivel"], key="educacion_input")
         
         col_hijos, col_ing, col_area, col_s = st.columns(4)
-        with col_hijos: nro_hijos = st.number_input("Nro. de Hijos en el Hogar", min_value=1, max_value=15, value=2)
-        with col_ing: ingreso_familiar = st.number_input("Ingreso Familiar (Soles/mes)", min_value=0.0, max_value=5000.0, value=1800.0, step=10.0)
-        with col_area: area = st.selectbox("Área de Residencia", options=['Urbana', 'Rural'])
-        with col_s: sexo = st.selectbox("Sexo", options=["Femenino", "Masculino"])
+        with col_hijos: nro_hijos = st.number_input("Nro. de Hijos en el Hogar", min_value=1, max_value=15, value=2, key="hijos_input")
+        with col_ing: ingreso_familiar = st.number_input("Ingreso Familiar (Soles/mes)", min_value=0.0, max_value=5000.0, value=1800.0, step=10.0, key="ingreso_input")
+        with col_area: area = st.selectbox("Área de Residencia", options=['Urbana', 'Rural'], key="area_input")
+        with col_s: sexo = st.selectbox("Sexo", options=["Femenino", "Masculino"], key="sexo_input")
         st.markdown("---")
         
         st.subheader("3. Acceso a Programas y Servicios")
         col_q, col_j, col_v, col_hierro = st.columns(4)
-        with col_q: qali_warma = st.radio("Programa Qali Warma", options=["No", "Sí"], horizontal=True)
-        with col_j: juntos = st.radio("Programa Juntos", options=["No", "Sí"], horizontal=True)
-        with col_v: vaso_leche = st.radio("Programa Vaso de Leche", options=["No", "Sí"], horizontal=True)
-        with col_hierro: suplemento_hierro = st.radio("Recibe Suplemento de Hierro", options=["No", "Sí"], horizontal=True)
+        with col_q: qali_warma = st.radio("Programa Qali Warma", options=["No", "Sí"], horizontal=True, key="qw_input")
+        with col_j: juntos = st.radio("Programa Juntos", options=["No", "Sí"], horizontal=True, key="juntos_input")
+        with col_v: vaso_leche = st.radio("Programa Vaso de Leche", options=["No", "Sí"], horizontal=True, key="vl_input")
+        with col_hierro: suplemento_hierro = st.radio("Recibe Suplemento de Hierro", options=["No", "Sí"], horizontal=True, key="hierro_input")
         st.markdown("---")
         
         predict_button = st.form_submit_button("GENERAR INFORME PERSONALIZADO Y REGISTRAR CASO", type="primary", use_container_width=True)
@@ -337,10 +395,13 @@ def vista_prediccion():
                 resultado_final = f"ALTO RIESGO (Alerta Clínica - {gravedad_anemia})"
             elif resultado_ml.startswith("ALTO RIESGO"):
                 resultado_final = f"ALTO RIESGO (Predicción ML - Anemia {gravedad_anemia})"
+            elif resultado_ml.startswith("MEDIO RIESGO") and gravedad_anemia == "LEVE":
+                 resultado_final = f"MEDIO RIESGO (Vulnerabilidad ML - Anemia {gravedad_anemia})"
             else:
                 resultado_final = resultado_ml
 
             sugerencias_finales = generar_sugerencias(data, resultado_final, gravedad_anemia)
+            
             # Pasamos la Region para que se guarde en la DB
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales, 'Region': region}
 
@@ -408,20 +469,22 @@ def vista_monitoreo():
         st.success("No hay casos de alto riesgo o críticos pendientes de seguimiento activo. ✅")
     else:
         st.info(f"Se encontraron **{len(df_monitoreo)}** casos que requieren acción inmediata o seguimiento activo.")
-        opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)"]
+        opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)", "REGISTRADO"]
         
         # Usamos ID_DB si existe (después de la migración SQL), si no, usamos la clave compuesta
-        cols_to_display = ['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']
+        cols_to_display = ['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION', 'Region']
         if 'ID_DB' in df_monitoreo.columns:
             cols_to_display.insert(0, 'ID_DB')
 
-        df_display = df_monitoreo[cols_to_display].copy()
+        df_display = df_monitoreo[[col for col in cols_to_display if col in df_monitoreo.columns]].copy()
         
         # Configuración de columnas para data_editor
         column_config = {
             "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True),
             "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
             "ID_GESTION": None, # Ocultar la clave compuesta
+            "Region": st.column_config.TextColumn("Región", disabled=True),
+            "DNI": st.column_config.TextColumn("DNI", disabled=True)
         }
         if 'ID_DB' in df_display.columns:
             column_config["ID_DB"] = st.column_config.NumberColumn("ID de Registro", disabled=True)
@@ -435,17 +498,26 @@ def vista_monitoreo():
 
         # Lógica de guardado
         changes_detected = False
-        for index, row in edited_df.iterrows():
-            original_row = df_monitoreo.loc[index]
-            if row['Estado'] != original_row['Estado']:
-                # Usamos DNI y Fecha Alerta como clave de Supabase
-                success = actualizar_estado_alerta(row['DNI'], original_row['Fecha Alerta'], row['Estado'])
-                if success:
-                    st.toast(f"✅ Estado de DNI {row['DNI']} actualizado a '{row['Estado']}'", icon='✅')
-                    changes_detected = True
-                else:
-                    st.toast(f"❌ Error al actualizar estado para DNI {row['DNI']}", icon='❌')
-                
+        if "monitoreo_data_editor" in st.session_state:
+            # Detectar cambios solo en el campo 'Estado' del data_editor
+            current_df = st.session_state["monitoreo_data_editor"]["edited_rows"]
+            
+            for index, row_changes in current_df.items():
+                if 'Estado' in row_changes:
+                    # Obtenemos el registro original por índice para obtener la clave compuesta
+                    original_row = df_monitoreo.loc[index]
+                    dni = original_row['DNI']
+                    fecha_alerta = original_row['Fecha Alerta'] # Asumiendo que esta fecha es parte de la clave única
+                    nuevo_estado = row_changes['Estado']
+                    
+                    success = actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado)
+                    
+                    if success:
+                        st.toast(f"✅ Estado de DNI {dni} actualizado a '{nuevo_estado}'", icon='✅')
+                        changes_detected = True
+                    else:
+                        st.toast(f"❌ Error al actualizar estado para DNI {dni}", icon='❌')
+        
         if changes_detected:
             # Recargar datos después de la actualización exitosa
             st.rerun()
@@ -482,9 +554,6 @@ def vista_dashboard():
 
     if df_historial.empty:
         st.info("No hay datos de historial disponibles para generar el tablero.")
-        # Se muestra el error de la DB aquí para claridad
-        if st.session_state.get('supabase_error_historial'):
-             st.error(f"❌ Error al consultar el historial de registros (Supabase): {st.session_state.get('supabase_error_historial')}")
         return
 
     # Preparar datos: Contar por riesgo, región y estado
@@ -497,7 +566,11 @@ def vista_dashboard():
     # Asegurarse de que las fechas sean datetime para series temporales
     try:
         df_historial['Fecha Alerta'] = pd.to_datetime(df_historial['Fecha Alerta'])
-        df_tendencia = df_historial.set_index('Fecha Alerta').resample('M').size().reset_index(name='Alertas Registradas')
+        # Contar por mes y año
+        df_historial['AñoMes'] = df_historial['Fecha Alerta'].dt.to_period('M')
+        df_tendencia = df_historial.groupby('AñoMes').size().reset_index(name='Alertas Registradas')
+        df_tendencia['Fecha Alerta'] = df_tendencia['AñoMes'].astype(str)
+        df_tendencia.drop(columns=['AñoMes'], inplace=True)
     except Exception as e:
         st.warning(f"⚠️ Error al procesar fechas para la tendencia: {e}. Mostrando solo datos de resumen.")
         df_tendencia = pd.DataFrame({'Fecha Alerta': [], 'Alertas Registradas': []})
@@ -506,7 +579,7 @@ def vista_dashboard():
     st.sidebar.header("Filtros del Dashboard")
     regiones_disponibles = sorted(df_historial['Region'].unique())
     # Usar el filtro solo si hay regiones disponibles
-    if regiones_disponibles and len(regiones_disponibles) > 1:
+    if regiones_disponibles and len(regiones_disponibles) > 0:
         filtro_region = st.sidebar.multiselect("Filtrar por Región:", regiones_disponibles, default=regiones_disponibles)
         df_filtrado = df_historial[df_historial['Region'].isin(filtro_region)]
     else:
@@ -522,8 +595,12 @@ def vista_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Distribución de Riesgo (IA y Clínico)")
+        
+        # Recalcular conteo de riesgo para el filtro
+        df_riesgo_filtrado = df_filtrado.groupby('Riesgo').size().reset_index(name='Conteo')
+
         fig_riesgo = px.pie(
-            df_riesgo, 
+            df_riesgo_filtrado, 
             names='Riesgo', 
             values='Conteo', 
             title='Distribución por Nivel de Riesgo',
@@ -535,8 +612,12 @@ def vista_dashboard():
     # 1.2 Gráfico de Casos por Estado de Gestión (Columna 2)
     with col2:
         st.subheader("Estado de Seguimiento de Casos")
+        
+        # Recalcular conteo de estado para el filtro
+        df_estado_filtrado = df_filtrado.groupby('Estado').size().reset_index(name='Conteo')
+
         fig_estado = px.bar(
-            df_estado,
+            df_estado_filtrado,
             y='Conteo', 
             x='Estado', 
             title='Estado de Gestión de Alertas',
@@ -559,8 +640,18 @@ def vista_dashboard():
     # 2.1 Gráfico de Tendencia Mensual (Ancho Completo)
     if not df_tendencia.empty:
         st.subheader("Tendencia Mensual de Alertas")
+        
+        # Si hay filtro, se recalcula la tendencia con df_filtrado
+        if len(regiones_disponibles) > 0 and len(filtro_region) < len(regiones_disponibles):
+            df_tendencia_filtrado = df_filtrado.groupby('AñoMes').size().reset_index(name='Alertas Registradas')
+            df_tendencia_filtrado['Fecha Alerta'] = df_tendencia_filtrado['AñoMes'].astype(str)
+            df_tendencia_filtrado.drop(columns=['AñoMes'], inplace=True)
+            data_tendencia = df_tendencia_filtrado
+        else:
+            data_tendencia = df_tendencia
+            
         fig_tendencia = px.line(
-            df_tendencia,
+            data_tendencia,
             x='Fecha Alerta',
             y='Alertas Registradas',
             title='Alertas Registradas por Mes',
@@ -573,7 +664,10 @@ def vista_dashboard():
 
     # 2.2 Gráfico de Casos de Alto Riesgo por Región (Ancho Completo)
     st.subheader("Casos de Alto Riesgo por Región (Top 10)")
-    df_region_top = df_region.sort_values(by='Casos de Alto Riesgo', ascending=False).head(10)
+    
+    # Recalcular alto riesgo por región usando df_filtrado
+    df_region_filtrado = df_filtrado[df_filtrado['Riesgo'].str.contains('ALTO RIESGO', na=False)].groupby('Region').size().reset_index(name='Casos de Alto Riesgo')
+    df_region_top = df_region_filtrado.sort_values(by='Casos de Alto Riesgo', ascending=False).head(10)
     
     if not df_region_top.empty:
         fig_region = px.bar(
@@ -612,10 +706,12 @@ def main():
         # Mostrar el estado del modelo y Supabase en la barra lateral
         st.markdown("### Estado del Sistema")
         if MODELO_ML: st.success("✅ Modelo ML Cargado (Mock)")
-        else: st.error("❌ Modelo ML Falló (Mock)")
-        if client: st.success("✅ Supabase Conectado (Mock)")
-        else: st.error("❌ Supabase Desconectado (Mock)")
+        else: st.warning("⚠️ Modelo ML Inactivo")
+
+        if client: st.success("✅ Conexión DB Activa (Mock)")
+        else: st.error("❌ Conexión DB Fallida (Mock)")
         
+    # Lógica de enrutamiento
     if seleccion == "Predicción y Reporte":
         vista_prediccion()
     elif seleccion == "Monitoreo de Alertas":
@@ -623,5 +719,5 @@ def main():
     elif seleccion == "Panel de control estadístico":
         vista_dashboard()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
