@@ -4,20 +4,23 @@ import numpy as np
 import joblib
 import json
 import os
-from supabase import create_client, Client
+from supabase import create_client, Client # Importación clave para Supabase
 from datetime import datetime
 
-# --- CONFIGURACIÓN DE SUPABASE ---
+# =========================================================================
+# --- CÓDIGO DE VINCULACIÓN Y CONFIGURACIÓN DE SUPABASE ---
+# =========================================================================
+
 # Se recomienda usar los secretos de Streamlit (st.secrets) para las credenciales.
 # Reemplaza los placeholders si no usas st.secrets
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "TU_URL_SUPABASE_NO_CONFIGURADA")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "TU_KEY_SUPABASE_NO_CONFIGURADA")
-DATABASE_TABLE = "AlertasAnemia" # Asegúrate de que esta sea tu tabla en Supabase
+DATABASE_TABLE = "AlertasAnemia" # Nombre de tu tabla en Supabase
 
 # Flag para rastrear si se usa el modelo real o el simulado
 MODELO_REAL_CARGADO = False
 
-# Inicializar cliente Supabase
+# Función para inicializar el cliente de Supabase (se ejecuta solo una vez)
 @st.cache_resource
 def init_supabase_client():
     # Solo inicializar si las credenciales NO son las de placeholder
@@ -28,11 +31,37 @@ def init_supabase_client():
             st.error(f"Error al inicializar Supabase: {e}")
             return None
     else:
+        # Se devuelve None si las credenciales no están configuradas
         return None
 
 supabase: Client = init_supabase_client()
 
-# --- CARGA DE MODELOS Y SIMULACIÓN ---
+# Función para REGISTRAR LA ALERTA en Supabase
+def registrar_alerta(data):
+    """Guarda los datos del informe y la alerta en Supabase."""
+    if supabase is None:
+        return False, "Supabase no inicializado. Revise las credenciales."
+    
+    try:
+        data['created_at'] = datetime.now().isoformat()
+        
+        # Ejecuta la inserción en la tabla
+        response = supabase.table(DATABASE_TABLE).insert(data).execute()
+        
+        if response.data:
+            return True, f"Registro exitoso con ID: {response.data[0]['id']}"
+        else:
+            return False, "Error desconocido en Supabase."
+
+    except Exception as e:
+        return False, str(e)
+
+# =========================================================================
+# --- FIN DE CÓDIGO DE VINCULACIÓN DE SUPABASE ---
+# =========================================================================
+
+
+# --- CARGA DE MODELOS Y SIMULACIÓN (El resto del código sigue igual) ---
 class MockModel:
     """Clase de simulación usada si el modelo real no carga."""
     def predict(self, X):
@@ -107,25 +136,6 @@ def clasificar_clima(altitud):
         return "TEMPLADO"
     else:
         return "CÁLIDO/SECO"
-
-# --- REGISTRO DE ALERTA EN SUPABASE ---
-
-def registrar_alerta(data):
-    """Guarda los datos del informe y la alerta en Supabase."""
-    if supabase is None:
-        return False, "Supabase no inicializado. Revise las credenciales."
-    
-    try:
-        data['created_at'] = datetime.now().isoformat()
-        response = supabase.table(DATABASE_TABLE).insert(data).execute()
-        
-        if response.data:
-            return True, f"Registro exitoso con ID: {response.data[0]['id']}"
-        else:
-            return False, "Error desconocido en Supabase."
-
-    except Exception as e:
-        return False, str(e)
 
 
 # --- INTERFAZ DE USUARIO CON STREAMLIT ---
@@ -273,7 +283,6 @@ def app():
             'Peso_Hogar': peso_hogar,
             'Ingreso_Familiar_Soles': ingreso_familiar_soles,
             # NOTA: AÑADE AQUÍ CUALQUIER OTRA VARIABLE QUE TU MODELO REAL NECESITE 
-            # (ej: variables codificadas de área de residencia, sexo, programas)
         }
         
         # Solo usar las columnas que el modelo espera y convertirlas a un array numpy
@@ -339,6 +348,7 @@ def app():
             if supabase is None:
                  st.info(f"Registro en DB omitido: Supabase no está configurado.")
             else:
+                # LLAMADA A LA FUNCIÓN DE REGISTRO
                 with st.spinner("Registrando alerta en la base de datos Supabase..."):
                     registro_exitoso, mensaje = registrar_alerta(alerta_data)
 
