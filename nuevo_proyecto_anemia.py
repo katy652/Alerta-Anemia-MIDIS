@@ -1,4 +1,6 @@
 import streamlit as st
+# Necesitas instalar 'fpdf' (o 'fpdf2' si usas versiones recientes, pero la FPDF original es más compatible con el código legado) y 'unidecode'
+# pip install streamlit fpdf unidecode pandas plotly
 from fpdf import FPDF
 import unidecode
 import datetime
@@ -8,23 +10,61 @@ import random
 # Importar la lógica del modelo mock, no el modelo real.
 
 # ==============================================================================
-# 1. CONFIGURACIÓN Y VARIABLES GLOBALES
+# 1. CONFIGURACIÓN Y VARIABLES GLOBALES (MOCK DE BASE DE DATOS)
 # ==============================================================================
 
-# Simulación de la carga del modelo ML y las columnas esperadas
-# Se simula que el modelo ha cargado correctamente usando la lógica de MOCK.
-# Esto asegura que la parte de IA de la aplicación simulada esté ACTIVA.
+# Simulación de la carga del modelo ML (siempre cargado para funcionalidad)
 MODELO_COLUMNS = ['Hemoglobina_g_dL', 'Edad_meses', 'Altitud_m', 'Area_Rural', 'Clima_Frio', 'Clima_Templado', 'Nivel_Educacion_Madre_Sin_Nivel', 'Ingreso_Familiar_Soles', 'Nro_Hijos', 'Programa_QaliWarma_Si', 'Programa_Juntos_Si', 'Programa_VasoLeche_Si', 'Suplemento_Hierro_No']
 MODELO_ML = "Mock Model Loaded" # Simula que el modelo ha cargado correctamente
 
-# Simulación de la conexión a Supabase
-SUPABASE_CLIENT = True # Lo establecemos a True para que el dashboard funcione
-# Usamos st.session_state para almacenar los registros simulados y persistirlos
-# a través de re-ejecuciones de Streamlit.
-if 'MOCK_DB_RECORDS' not in st.session_state:
-    st.session_state.MOCK_DB_RECORDS = [] 
-if 'MOCK_ID_COUNTER' not in st.session_state:
-    st.session_state.MOCK_ID_COUNTER = 1
+# ------------------------------------------------------------------------------
+# MOCK DE SUPABASE: Clase que simula la interacción con la base de datos
+# ------------------------------------------------------------------------------
+class MockSupabaseClient:
+    def __init__(self):
+        # Usamos st.session_state para almacenar los registros simulados y persistirlos
+        if 'MOCK_DB_RECORDS' not in st.session_state:
+            st.session_state.MOCK_DB_RECORDS = [] 
+        if 'MOCK_ID_COUNTER' not in st.session_state:
+            st.session_state.MOCK_ID_COUNTER = 1
+        self.is_connected = True # Siempre True en la simulación
+
+    def insert(self, table_name, data):
+        # Simula la inserción en la tabla de alertas
+        if table_name == 'alertas_anemia':
+            record = data.copy()
+            record['ID_DB'] = st.session_state.MOCK_ID_COUNTER
+            record['Fecha Alerta'] = datetime.datetime.now().isoformat()
+            record['ID_GESTION'] = f"{st.session_state.MOCK_ID_COUNTER}_{record['Fecha Alerta']}"
+            
+            st.session_state.MOCK_DB_RECORDS.append(record)
+            st.session_state.MOCK_ID_COUNTER += 1
+            return True, record['ID_DB']
+        return False, None
+
+    def select(self, table_name, filter_func=None):
+        # Simula la selección de datos
+        if table_name == 'alertas_anemia':
+            df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
+            if df.empty:
+                return pd.DataFrame()
+            if filter_func:
+                df = filter_func(df)
+            return df
+        return pd.DataFrame()
+
+    def update(self, table_name, id_gestion, nuevo_estado):
+        # Simula la actualización por la clave de gestión única
+        if table_name == 'alertas_anemia':
+            for i, record in enumerate(st.session_state.MOCK_DB_RECORDS):
+                if record.get('ID_GESTION') == id_gestion:
+                    st.session_state.MOCK_DB_RECORDS[i]['Estado'] = nuevo_estado
+                    return True
+            return False
+        return False
+
+# Inicializar el cliente simulado de Supabase
+DB_CLIENT = MockSupabaseClient()
 
 # ==============================================================================
 # 2. FUNCIONES DE SOPORTE (Altitud, Clima, DB Mock)
@@ -65,67 +105,46 @@ def get_clima_por_region(region):
     else: # Costa y Lima/Callao
         return "CÁLIDO/SECO"
 
-def get_supabase_client():
-    # Simula la conexión a Supabase
-    return SUPABASE_CLIENT
-
 def registrar_alerta_db(alerta_data):
-    # Usamos st.session_state para la persistencia del mock
-    if not get_supabase_client():
-        st.warning("⚠️ SIMULACIÓN: No se pudo conectar a la DB. No se registró el caso.")
-        return False
-        
-    fecha_alerta = datetime.datetime.now().isoformat()
-    record = {
-        'ID_DB': st.session_state.MOCK_ID_COUNTER,
+    # Prepara el objeto para inserción (simulada)
+    data_to_insert = {
         'DNI': alerta_data['DNI'],
         'Nombre': alerta_data['Nombre_Apellido'],
         'Hb Inicial': alerta_data['Hemoglobina_g_dL'],
         'Riesgo': alerta_data['riesgo'],
         'Gravedad': alerta_data['gravedad_anemia'],
         'Region': alerta_data['Region'],
-        'Fecha Alerta': fecha_alerta,
         'Estado': 'REGISTRADO', # Estado inicial
         'Sugerencias': ' | '.join(alerta_data['sugerencias']),
-        # Usamos la clave compuesta con el ID_DB para la gestión.
-        'ID_GESTION': f"{st.session_state.MOCK_ID_COUNTER}_{fecha_alerta}",
     }
-    st.session_state.MOCK_DB_RECORDS.append(record)
-    st.session_state.MOCK_ID_COUNTER += 1
-    st.success(f"✅ SIMULACIÓN: Caso de {alerta_data['Nombre_Apellido']} registrado con ID {record['ID_DB']}.")
-    return True
+    
+    success, new_id = DB_CLIENT.insert('alertas_anemia', data_to_insert)
+    
+    if success:
+        st.success(f"✅ Caso de {alerta_data['Nombre_Apellido']} registrado en la DB con ID {new_id}.")
+        return True
+    else:
+        st.warning("⚠️ No se pudo registrar el caso en la DB.")
+        return False
 
 def obtener_alertas_pendientes_o_seguimiento():
-    # Usamos st.session_state para acceder a los registros simulados
-    if not get_supabase_client():
-        return pd.DataFrame()
+    # Consulta (simulada) para obtener registros activos
+    def filter_active(df):
+        return df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])]
         
-    df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
-    if df.empty:
-        return df
-        
-    # Se simula la consulta para obtener registros activos
-    df_filtrado = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])]
-    return df_filtrado.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
+    df = DB_CLIENT.select('alertas_anemia', filter_active)
+    
+    if not df.empty:
+        return df.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
+    return pd.DataFrame()
 
-def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado, id_gestion):
-    # Ahora buscamos por ID_GESTION que es único para el mock
-    if not get_supabase_client():
-        return False
-        
-    for i, record in enumerate(st.session_state.MOCK_DB_RECORDS):
-        # Buscamos por la clave de gestión
-        if record.get('ID_GESTION') == id_gestion:
-            st.session_state.MOCK_DB_RECORDS[i]['Estado'] = nuevo_estado
-            return True
-    return False
+def actualizar_estado_alerta(id_gestion, nuevo_estado):
+    # Simula la actualización
+    return DB_CLIENT.update('alertas_anemia', id_gestion, nuevo_estado)
 
 def obtener_todos_los_registros():
-    if not get_supabase_client():
-        st.session_state['supabase_error_historial'] = "Conexión a Supabase simulada fallida."
-        return pd.DataFrame()
-        
-    df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
+    df = DB_CLIENT.select('alertas_anemia')
+    
     if not df.empty:
         # Aseguramos que los tipos sean correctos para el dashboard
         df['Hb Inicial'] = pd.to_numeric(df['Hb Inicial'])
@@ -161,7 +180,6 @@ def clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_m):
 
 def predict_risk_ml(data):
     # --- MOCK / SIMULACIÓN DE MODELO ML ---
-    # Usamos la lógica de simulación ya existente, que es funcional.
     gravedad_anemia, _, _, _ = clasificar_anemia_clinica(data['Hemoglobina_g_dL'], data['Edad_meses'], data['Altitud_m'])
     
     prob_base = 0.1 # Riesgo inicial
@@ -458,12 +476,13 @@ def vista_prediccion():
         st.markdown("---")
 
 def vista_monitoreo():
-    st.title("📊 Monitoreo y Gestión de Alertas (Supabase - SIMULACIÓN)")
+    st.title("📊 Monitoreo y Gestión de Alertas")
+    st.caption("Los datos se guardan de forma persistente durante tu sesión.")
     st.markdown("---")
     st.header("1. Casos de Monitoreo Activo (Pendientes y En Seguimiento)")
     
-    if get_supabase_client() is None:
-        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con Supabase.")
+    if not DB_CLIENT.is_connected:
+        st.error("🛑 La gestión de alertas no está disponible. No se pudo establecer conexión con el cliente de base de datos.")
         return
 
     df_monitoreo = obtener_alertas_pendientes_o_seguimiento()
@@ -474,9 +493,8 @@ def vista_monitoreo():
         st.info(f"Se encontraron **{len(df_monitoreo)}** casos que requieren acción inmediata o seguimiento activo.")
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)", "REGISTRADO"]
         
-        # Usamos ID_DB si existe (después de la migración SQL), si no, usamos la clave compuesta
+        # Columnas a mostrar en el editor
         cols_to_display = ['ID_DB', 'DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']
-        # Nos aseguramos de que solo se muestren las columnas que existen en el DataFrame
         cols_to_display = [col for col in cols_to_display if col in df_monitoreo.columns]
         
         df_display = df_monitoreo[cols_to_display].copy()
@@ -487,7 +505,8 @@ def vista_monitoreo():
                 "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True),
                 "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
                 "ID_GESTION": None, # Ocultar la clave compuesta
-                "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True)
+                "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True),
+                "Fecha Alerta": st.column_config.DatetimeColumn("Fecha Alerta", format="YYYY-MM-DD HH:mm")
             },
             hide_index=True,
             key="monitoreo_data_editor"
@@ -498,10 +517,9 @@ def vista_monitoreo():
         if not df_monitoreo.empty:
             for index, row in edited_df.iterrows():
                 original_row = df_monitoreo.loc[index]
-                # Verificamos si el índice existe en el DataFrame original
                 if index in df_monitoreo.index and row['Estado'] != original_row['Estado']:
                     # Usamos ID_GESTION para asegurar la unicidad en el mock
-                    success = actualizar_estado_alerta(row['DNI'], original_row['Fecha Alerta'], row['Estado'], original_row['ID_GESTION'])
+                    success = actualizar_estado_alerta(original_row['ID_GESTION'], row['Estado'])
                     if success:
                         st.toast(f"✅ Estado de DNI {row['DNI']} actualizado a '{row['Estado']}'", icon='✅')
                         changes_detected = True
@@ -533,19 +551,18 @@ def vista_monitoreo():
 # ==============================================================================
 
 def vista_dashboard():
-    st.title("📊 Panel Estadístico de Alertas de Anemia (SIMULACIÓN)")
+    st.title("📊 Panel Estadístico de Alertas")
+    st.caption("Muestra datos persistentes guardados durante tu sesión.")
     st.markdown("---")
     
-    if get_supabase_client() is None:
-        st.error("🛑 El dashboard no está disponible. No se pudo establecer conexión con Supabase.")
+    if not DB_CLIENT.is_connected:
+        st.error("🛑 El dashboard no está disponible. No se pudo establecer conexión con el cliente de base de datos.")
         return
 
     df_historial = obtener_todos_los_registros()
 
     if df_historial.empty:
         st.info("No hay datos de historial disponibles para generar el tablero.")
-        if st.session_state.get('supabase_error_historial'):
-            st.error(f"❌ Error al consultar el historial de registros (Supabase): {st.session_state.get('supabase_error_historial')}")
         return
 
     # Preparar datos: Contar por riesgo, región y estado
@@ -645,9 +662,6 @@ def vista_dashboard():
 # ==============================================================================
 
 def main():
-    # Se llama a la conexión de Supabase para mostrar el estado en el sidebar
-    client = get_supabase_client()
-    
     with st.sidebar:
         st.title("🩸 Sistema de Alerta IA")
         st.markdown("---")
@@ -662,8 +676,8 @@ def main():
         if MODELO_ML: st.success("✅ Modelo ML Cargado (Lógica Simulada Activa)")
         else: st.error("❌ Modelo ML Falló")
         # La conexión a Supabase es simulada, pero usamos la persistencia de sesión
-        if client: st.success("✅ Supabase Conectado (Simulación con Persistencia)")
-        else: st.error("❌ Supabase Desconectado (Simulación)")
+        if DB_CLIENT.is_connected: st.success("✅ DB Conectada (Persistencia en Sesión)")
+        else: st.error("❌ DB Desconectada")
         
     if seleccion == "Predicción y Reporte":
         vista_prediccion()
