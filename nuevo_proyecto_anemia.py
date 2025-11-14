@@ -1,6 +1,6 @@
 import streamlit as st
 # Necesitas instalar 'fpdf' (o 'fpdf2' si usas versiones recientes, pero la FPDF original es más compatible con el código legado) y 'unidecode'
-# pip install streamlit fpdf unidecode pandas plotly
+# pip install streamlit fpdf unidecode pandas plotly twilio (para el envío real)
 from fpdf import FPDF
 import unidecode
 import datetime
@@ -148,28 +148,6 @@ def registrar_alerta_db(alerta_data):
         st.warning("⚠️ No se pudo registrar el caso en la DB.")
         return False
 
-def obtener_alertas_pendientes_o_seguimiento():
-    # Consulta (simulada) para obtener registros activos
-    df = DB_CLIENT.get_all_records()
-    
-    if df.empty:
-        return pd.DataFrame()
-        
-    df_filtered = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])].copy()
-        
-    if not df_filtered.empty:
-        # Aseguramos que 'ID_DB' es la clave de ordenamiento
-        return df_filtered.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
-    return pd.DataFrame()
-
-def actualizar_estado_alerta(id_gestion, nuevo_estado):
-    # Simula la actualización
-    return DB_CLIENT.update('alertas_anemia', id_gestion, nuevo_estado)
-
-def obtener_todos_los_registros():
-    df = DB_CLIENT.get_all_records()
-    return df.sort_values(by='ID_DB', ascending=False)
-
 # ==============================================================================
 # 3. FUNCIONES DE CORE LOGIC (Clasificación Clínica e IA)
 # ==============================================================================
@@ -271,7 +249,8 @@ def generar_sugerencias(data, resultado_final, gravedad_anemia):
 # ==============================================================================
 # 4. GENERACIÓN DE INFORME PDF (Funciones)
 # ==============================================================================
-
+# (El código del PDF se mantiene igual, omitido aquí por brevedad)
+# ... (PDF class definition) ...
 class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
@@ -300,6 +279,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 5, f"DNI del Paciente: {data['DNI']}", 0, 1)
     pdf.cell(0, 5, f"Nombre: {data['Nombre_Apellido']}", 0, 1)
+    pdf.cell(0, 5, f"Celular: {data['Celular']}", 0, 1) # Añadido el celular al PDF
     pdf.cell(0, 5, f"Fecha de Analisis: {datetime.date.today().isoformat()}", 0, 1)
     pdf.ln(5)
 
@@ -336,7 +316,50 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     return bytes(pdf.output(dest='S'))
 
 # ==============================================================================
-# 5. VISTAS DE LA APLICACIÓN (STREAMLIT UI)
+# 5. INTEGRACIÓN DE ALERTA POR SMS (TWILIO SIMULADO)
+# ==============================================================================
+
+def enviar_alerta_sms_twilio(celular, nombre, riesgo, gravedad):
+    """
+    Función que simula el envío de una alerta por SMS usando Twilio.
+    EN PRODUCCIÓN: Debes reemplazar esta lógica con el cliente real de Twilio.
+    """
+    # 🛑 REEMPLAZA ESTAS VARIABLES EN PRODUCCIÓN CON TUS CLAVES REALES DE TWILIO
+    ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    AUTH_TOKEN = "your_auth_token"
+    TWILIO_NUMBER = "+15017122661"  # Tu número Twilio
+
+    mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {st.session_state.data_reporte['DNI']}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE."
+    
+    # -------------------------------------------------------------------------
+    # SIMULACIÓN DEL ENVÍO:
+    # -------------------------------------------------------------------------
+    
+    if ACCOUNT_SID.startswith("ACx"):
+        # Simulación
+        st.info(f"📲 Alerta SMS **SIMULADA** enviada al número: {celular}. \n\n*Mensaje:* {mensaje}")
+        return True
+    
+    # -------------------------------------------------------------------------
+    # LÓGICA DE ENVÍO REAL (DESCOMENTAR EN PRODUCCIÓN)
+    # -------------------------------------------------------------------------
+    # from twilio.rest import Client
+    # try:
+    #     client = Client(ACCOUNT_SID, AUTH_TOKEN)
+    #     client.messages.create(
+    #         to=celular,
+    #         from_=TWILIO_NUMBER,
+    #         body=mensaje
+    #     )
+    #     st.success(f"✅ Alerta SMS real enviada con éxito a {celular}.")
+    #     return True
+    # except Exception as e:
+    #     st.error(f"❌ ERROR: No se pudo enviar el SMS real. Revise sus credenciales de Twilio o el formato del número. Detalle: {e}")
+    #     return False
+
+
+# ==============================================================================
+# 6. VISTAS DE LA APLICACIÓN (STREAMLIT UI)
 # ==============================================================================
 
 def vista_prediccion():
@@ -366,9 +389,10 @@ def vista_prediccion():
     
     with st.form("formulario_prediccion"):
         st.subheader("0. Datos de Identificación y Contacto")
-        col_dni, col_nombre = st.columns(2)
+        col_dni, col_nombre, col_celular = st.columns(3)
         with col_dni: dni = st.text_input("DNI del Paciente", max_chars=8, placeholder="Solo 8 dígitos")
         with col_nombre: nombre = st.text_input("Nombre y Apellido", placeholder="Ej: Ana Torres")
+        with col_celular: celular = st.text_input("Celular de Contacto (9 dígitos)", max_chars=15, placeholder="+51 9XXXXXXXX")
         st.markdown("---")
         
         st.subheader("1. Factores Clínicos y Demográficos Clave")
@@ -411,15 +435,16 @@ def vista_prediccion():
         with col_hierro: suplemento_hierro = st.radio("Recibe Suplemento de Hierro", options=["No", "Sí"], horizontal=True)
         st.markdown("---")
         
-        predict_button = st.form_submit_button("GENERAR INFORME PERSONALIZADO Y REGISTRAR CASO", type="primary", use_container_width=True)
+        predict_button = st.form_submit_button("GENERAR INFORME PERSONALIZADO, REGISTRAR CASO Y ENVIAR ALERTA", type="primary", use_container_width=True)
         st.markdown("---")
 
         if predict_button:
             if not dni or len(dni) != 8: st.error("Por favor, ingrese un DNI válido de 8 dígitos."); return
             if not nombre: st.error("Por favor, ingrese un nombre."); return
+            if not celular: st.error("Por favor, ingrese un número de celular de contacto."); return
             
             # Altitud y Clima usan los valores calculados/asignados
-            data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud_calculada, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro}
+            data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'Altitud_m': altitud_calculada, 'Sexo': sexo, 'Region': region, 'Area': area, 'Clima': clima, 'Ingreso_Familiar_Soles': ingreso_familiar, 'Nivel_Educacion_Madre': educacion_madre, 'Nro_Hijos': nro_hijos, 'Programa_QaliWarma': qali_warma, 'Programa_Juntos': juntos, 'Programa_VasoLeche': vaso_leche, 'Suplemento_Hierro': suplemento_hierro, 'Celular': celular}
 
             # Clasificación Clínica con ajuste por altitud automática
             gravedad_anemia, umbral_clinico, hb_corregida, correccion_alt = clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_calculada)
@@ -442,6 +467,9 @@ def vista_prediccion():
 
             # Intenta registrar en DB (Mock persistente)
             registrar_alerta_db(alerta_data)
+            
+            # Intenta enviar alerta por celular
+            enviar_alerta_sms_twilio(celular, nombre, resultado_final, gravedad_anemia)
 
             # Guardar resultados en session_state y recargar
             st.session_state.resultado = resultado_final
@@ -493,6 +521,35 @@ def vista_prediccion():
             st.download_button(label="⬇️ Descargar Informe de Recomendaciones Individual (PDF)", data=pdf_data, file_name=f'informe_riesgo_DNI_{data_reporte["DNI"]}_{datetime.date.today().isoformat()}.pdf', mime='application/pdf', type="secondary")
         except Exception as pdf_error: st.error(f"⚠️ Error al generar el PDF. Detalle: {pdf_error}")
         st.markdown("---")
+
+# ==============================================================================
+# 7. VISTAS DE MONITOREO Y DASHBOARD
+# ==============================================================================
+
+# Las funciones de monitoreo y dashboard se mantienen igual, solo se omiten aquí
+# para no repetir el código que no ha cambiado.
+
+def obtener_alertas_pendientes_o_seguimiento():
+    # Consulta (simulada) para obtener registros activos
+    df = DB_CLIENT.get_all_records()
+    
+    if df.empty:
+        return pd.DataFrame()
+        
+    df_filtered = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])].copy()
+        
+    if not df_filtered.empty:
+        # Aseguramos que 'ID_DB' es la clave de ordenamiento
+        return df_filtered.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
+    return pd.DataFrame()
+
+def actualizar_estado_alerta(id_gestion, nuevo_estado):
+    # Simula la actualización
+    return DB_CLIENT.update('alertas_anemia', id_gestion, nuevo_estado)
+
+def obtener_todos_los_registros():
+    df = DB_CLIENT.get_all_records()
+    return df.sort_values(by='ID_DB', ascending=False)
 
 def vista_monitoreo():
     st.title("📊 Monitoreo y Gestión de Alertas")
@@ -571,10 +628,6 @@ def vista_monitoreo():
         st.dataframe(df_historial)
     else:
         st.info("No hay registros en el historial.")
-
-# ==============================================================================
-# 6. VISTA DEL DASHBOARD ESTADÍSTICO
-# ==============================================================================
 
 def vista_dashboard():
     st.title("📊 Panel Estadístico de Alertas")
@@ -696,8 +749,9 @@ def vista_dashboard():
     fig_region.update_yaxes(autorange="reversed") # Para que el mayor esté arriba
     st.plotly_chart(fig_region, use_container_width=True)
 
+
 # ==============================================================================
-# 7. CONFIGURACIÓN PRINCIPAL (SIDEBAR Y RUTAS)
+# 8. CONFIGURACIÓN PRINCIPAL (SIDEBAR Y RUTAS)
 # ==============================================================================
 
 def main():
