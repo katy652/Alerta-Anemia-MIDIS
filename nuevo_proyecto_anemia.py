@@ -1,26 +1,30 @@
 import streamlit as st
-# Necesitas instalar 'fpdf' (o 'fpdf2' si usas versiones recientes, pero la FPDF original es más compatible con el código legado) y 'unidecode'
-# pip install streamlit fpdf unidecode pandas plotly
 from fpdf import FPDF
 import unidecode
 import datetime
 import pandas as pd
 import plotly.express as px
 import random
+# Importar la lógica del modelo mock, no el modelo real.
 
 # ==============================================================================
-# 1. CONFIGURACIÓN Y VARIABLES GLOBALES (MOCK/PLACEHOLDER)
+# 1. CONFIGURACIÓN Y VARIABLES GLOBALES
 # ==============================================================================
 
 # Simulación de la carga del modelo ML y las columnas esperadas
-# En un entorno real, estos serían cargados desde un archivo (ej: joblib)
+# Se simula que el modelo ha cargado correctamente usando la lógica de MOCK.
+# Esto asegura que la parte de IA de la aplicación simulada esté ACTIVA.
 MODELO_COLUMNS = ['Hemoglobina_g_dL', 'Edad_meses', 'Altitud_m', 'Area_Rural', 'Clima_Frio', 'Clima_Templado', 'Nivel_Educacion_Madre_Sin_Nivel', 'Ingreso_Familiar_Soles', 'Nro_Hijos', 'Programa_QaliWarma_Si', 'Programa_Juntos_Si', 'Programa_VasoLeche_Si', 'Suplemento_Hierro_No']
 MODELO_ML = "Mock Model Loaded" # Simula que el modelo ha cargado correctamente
 
 # Simulación de la conexión a Supabase
 SUPABASE_CLIENT = True # Lo establecemos a True para que el dashboard funcione
-MOCK_DB_RECORDS = [] # Almacén de datos simulado
-MOCK_ID_COUNTER = 1
+# Usamos st.session_state para almacenar los registros simulados y persistirlos
+# a través de re-ejecuciones de Streamlit.
+if 'MOCK_DB_RECORDS' not in st.session_state:
+    st.session_state.MOCK_DB_RECORDS = [] 
+if 'MOCK_ID_COUNTER' not in st.session_state:
+    st.session_state.MOCK_ID_COUNTER = 1
 
 # ==============================================================================
 # 2. FUNCIONES DE SOPORTE (Altitud, Clima, DB Mock)
@@ -66,14 +70,14 @@ def get_supabase_client():
     return SUPABASE_CLIENT
 
 def registrar_alerta_db(alerta_data):
-    global MOCK_DB_RECORDS, MOCK_ID_COUNTER
+    # Usamos st.session_state para la persistencia del mock
     if not get_supabase_client():
         st.warning("⚠️ SIMULACIÓN: No se pudo conectar a la DB. No se registró el caso.")
         return False
         
     fecha_alerta = datetime.datetime.now().isoformat()
     record = {
-        'ID_DB': MOCK_ID_COUNTER,
+        'ID_DB': st.session_state.MOCK_ID_COUNTER,
         'DNI': alerta_data['DNI'],
         'Nombre': alerta_data['Nombre_Apellido'],
         'Hb Inicial': alerta_data['Hemoglobina_g_dL'],
@@ -83,34 +87,36 @@ def registrar_alerta_db(alerta_data):
         'Fecha Alerta': fecha_alerta,
         'Estado': 'REGISTRADO', # Estado inicial
         'Sugerencias': ' | '.join(alerta_data['sugerencias']),
-        'ID_GESTION': f"{alerta_data['DNI']}_{fecha_alerta}",
+        # Usamos la clave compuesta con el ID_DB para la gestión.
+        'ID_GESTION': f"{st.session_state.MOCK_ID_COUNTER}_{fecha_alerta}",
     }
-    MOCK_DB_RECORDS.append(record)
-    MOCK_ID_COUNTER += 1
+    st.session_state.MOCK_DB_RECORDS.append(record)
+    st.session_state.MOCK_ID_COUNTER += 1
     st.success(f"✅ SIMULACIÓN: Caso de {alerta_data['Nombre_Apellido']} registrado con ID {record['ID_DB']}.")
     return True
 
 def obtener_alertas_pendientes_o_seguimiento():
+    # Usamos st.session_state para acceder a los registros simulados
     if not get_supabase_client():
         return pd.DataFrame()
         
-    df = pd.DataFrame(MOCK_DB_RECORDS)
+    df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
     if df.empty:
         return df
         
     # Se simula la consulta para obtener registros activos
     df_filtrado = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])]
-    return df_filtrado.reset_index(drop=True)
+    return df_filtrado.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
 
-def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado):
-    global MOCK_DB_RECORDS
+def actualizar_estado_alerta(dni, fecha_alerta, nuevo_estado, id_gestion):
+    # Ahora buscamos por ID_GESTION que es único para el mock
     if not get_supabase_client():
         return False
         
-    target_id = f"{dni}_{fecha_alerta}"
-    for i, record in enumerate(MOCK_DB_RECORDS):
-        if record.get('ID_GESTION') == target_id:
-            MOCK_DB_RECORDS[i]['Estado'] = nuevo_estado
+    for i, record in enumerate(st.session_state.MOCK_DB_RECORDS):
+        # Buscamos por la clave de gestión
+        if record.get('ID_GESTION') == id_gestion:
+            st.session_state.MOCK_DB_RECORDS[i]['Estado'] = nuevo_estado
             return True
     return False
 
@@ -119,12 +125,12 @@ def obtener_todos_los_registros():
         st.session_state['supabase_error_historial'] = "Conexión a Supabase simulada fallida."
         return pd.DataFrame()
         
-    df = pd.DataFrame(MOCK_DB_RECORDS)
+    df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
     if not df.empty:
         # Aseguramos que los tipos sean correctos para el dashboard
         df['Hb Inicial'] = pd.to_numeric(df['Hb Inicial'])
         df['Fecha Alerta'] = pd.to_datetime(df['Fecha Alerta'])
-    return df
+    return df.sort_values(by='ID_DB', ascending=False)
 
 # ==============================================================================
 # 3. FUNCIONES DE CORE LOGIC (Clasificación Clínica e IA)
@@ -132,6 +138,7 @@ def obtener_todos_los_registros():
 
 def clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_m):
     # Factor de corrección por altitud (según CDC/OMS para Hb)
+    # Corrección para ALTITUD (suma a Hb) = 0.3 * (Altitud en km)
     correccion_alt = 0.3 * (altitud_m / 1000)
     hb_corregida = hemoglobina + correccion_alt
     
@@ -154,11 +161,12 @@ def clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_m):
 
 def predict_risk_ml(data):
     # --- MOCK / SIMULACIÓN DE MODELO ML ---
+    # Usamos la lógica de simulación ya existente, que es funcional.
     gravedad_anemia, _, _, _ = clasificar_anemia_clinica(data['Hemoglobina_g_dL'], data['Edad_meses'], data['Altitud_m'])
     
     prob_base = 0.1 # Riesgo inicial
     
-    # Factores de aumento de riesgo (por IA)
+    # Factores de aumento de riesgo (por IA simulada)
     if data['Area'] == 'Rural': prob_base += 0.15
     if data['Nivel_Educacion_Madre'] in ['Sin Nivel', 'Inicial', 'Primaria']: prob_base += 0.2
     if data['Ingreso_Familiar_Soles'] < 1000: prob_base += 0.25
@@ -378,6 +386,8 @@ def vista_prediccion():
 
             # Clasificación Clínica con ajuste por altitud automática
             gravedad_anemia, umbral_clinico, hb_corregida, correccion_alt = clasificar_anemia_clinica(hemoglobina, edad_meses, altitud_calculada)
+            
+            # 🛑 Ejecutar el Mock de IA
             prob_alto_riesgo, resultado_ml = predict_risk_ml(data)
 
             # Lógica Híbrida de Riesgo
@@ -393,7 +403,7 @@ def vista_prediccion():
             # Pasamos la Region para que se guarde en la DB
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales, 'Region': region}
 
-            # Intenta registrar en DB (Mock)
+            # Intenta registrar en DB (Mock persistente)
             registrar_alerta_db(alerta_data)
 
             # Guardar resultados en session_state y recargar
@@ -405,7 +415,9 @@ def vista_prediccion():
             st.session_state.hb_corregida = hb_corregida
             st.session_state.correccion_alt = correccion_alt
             st.session_state.prediction_done = True
-            st.rerun()
+            # No usamos st.rerun() aquí para evitar ciclos de re-ejecución innecesarios
+            # después de una predicción exitosa, solo dejamos que el script continúe
+            # y muestre los resultados.
 
     # Mostrar resultados después de la predicción
     if st.session_state.prediction_done:
@@ -426,7 +438,10 @@ def vista_prediccion():
         with col_res1: st.metric(label="Hemoglobina Medida (g/dL)", value=data_reporte['Hemoglobina_g_dL'])
         
         # Corrección del formato de la corrección de altitud
-        with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"-{abs(correccion_alt):.1f} g/dL")
+        # La corrección es aditiva, si es negativa, significa que la altitud baja la Hb
+        # Para Perú, la corrección siempre suma (Hb_corregida = Hb_medida + correccion),
+        # por lo que el valor en el metric debe ser positivo.
+        with col_res2: st.metric(label=f"Corrección por Altitud ({data_reporte['Altitud_m']}m)", value=f"+{correccion_alt:.1f} g/dL")
         
         with col_res3: st.metric(label="Hemoglobina Corregida (g/dL)", value=f"**{hb_corregida:.1f}**", delta=f"Gravedad: {gravedad_anemia}")
         
@@ -460,7 +475,7 @@ def vista_monitoreo():
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)", "REGISTRADO"]
         
         # Usamos ID_DB si existe (después de la migración SQL), si no, usamos la clave compuesta
-        cols_to_display = ['DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION', 'ID_DB']
+        cols_to_display = ['ID_DB', 'DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']
         # Nos aseguramos de que solo se muestren las columnas que existen en el DataFrame
         cols_to_display = [col for col in cols_to_display if col in df_monitoreo.columns]
         
@@ -485,8 +500,8 @@ def vista_monitoreo():
                 original_row = df_monitoreo.loc[index]
                 # Verificamos si el índice existe en el DataFrame original
                 if index in df_monitoreo.index and row['Estado'] != original_row['Estado']:
-                    # Usamos DNI y Fecha Alerta como clave de Supabase (Simulada)
-                    success = actualizar_estado_alerta(row['DNI'], original_row['Fecha Alerta'], row['Estado'])
+                    # Usamos ID_GESTION para asegurar la unicidad en el mock
+                    success = actualizar_estado_alerta(row['DNI'], original_row['Fecha Alerta'], row['Estado'], original_row['ID_GESTION'])
                     if success:
                         st.toast(f"✅ Estado de DNI {row['DNI']} actualizado a '{row['Estado']}'", icon='✅')
                         changes_detected = True
@@ -542,6 +557,7 @@ def vista_dashboard():
     
     # Asegurarse de que las fechas sean datetime para series temporales
     df_historial['Fecha Alerta'] = pd.to_datetime(df_historial['Fecha Alerta'])
+    # Agrupamos por mes para la tendencia
     df_tendencia = df_historial.set_index('Fecha Alerta').resample('M').size().reset_index(name='Alertas Registradas')
     
     # --- FILTROS ---
@@ -632,9 +648,6 @@ def main():
     # Se llama a la conexión de Supabase para mostrar el estado en el sidebar
     client = get_supabase_client()
     
-    # Configuración de página (solo si la app se ejecuta por primera vez)
-    # st.set_page_config(layout="wide") 
-
     with st.sidebar:
         st.title("🩸 Sistema de Alerta IA")
         st.markdown("---")
@@ -645,9 +658,11 @@ def main():
         st.markdown("---")
         # Mostrar el estado del modelo y Supabase en la barra lateral
         st.markdown("### Estado del Sistema")
-        if MODELO_ML: st.success("✅ Modelo ML Cargado")
+        # Ahora siempre está "cargado" porque estamos usando la lógica simulada
+        if MODELO_ML: st.success("✅ Modelo ML Cargado (Lógica Simulada Activa)")
         else: st.error("❌ Modelo ML Falló")
-        if client: st.success("✅ Supabase Conectado (Simulación)")
+        # La conexión a Supabase es simulada, pero usamos la persistencia de sesión
+        if client: st.success("✅ Supabase Conectado (Simulación con Persistencia)")
         else: st.error("❌ Supabase Desconectado (Simulación)")
         
     if seleccion == "Predicción y Reporte":
