@@ -9,52 +9,60 @@ from datetime import datetime
 
 # --- CONFIGURACIÓN DE SUPABASE (Necesitas tus propias credenciales) ---
 # Se recomienda usar los secretos de Streamlit para producción.
-# Para este ejemplo, se asumen variables de entorno o valores de prueba.
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "TU_URL_SUPABASE_NO_CONFIGURADA")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "TU_KEY_SUPABASE_NO_CONFIGURADA")
 DATABASE_TABLE = "AlertasAnemia" # Asegúrate de que esta sea tu tabla en Supabase
+
+# Flag para rastrear si se usa el modelo real o el simulado
+MODELO_REAL_CARGADO = False
 
 # Inicializar cliente Supabase
 @st.cache_resource
 def init_supabase_client():
-    if SUPABASE_URL and SUPABASE_KEY:
+    # Solo inicializar si las credenciales NO son las de placeholder
+    if SUPABASE_URL != "TU_URL_SUPABASE_NO_CONFIGURADA" and SUPABASE_KEY != "TU_KEY_SUPABASE_NO_CONFIGURADA":
         try:
             return create_client(SUPABASE_URL, SUPABASE_KEY)
         except Exception as e:
             st.error(f"Error al inicializar Supabase: {e}")
             return None
     else:
-        st.warning("Credenciales de Supabase no configuradas. El registro de alertas estará desactivado.")
+        # st.warning("Credenciales de Supabase no configuradas. El registro de alertas estará desactivado.")
         return None
 
 supabase: Client = init_supabase_client()
 
-# --- SIMULACIÓN DE CARGA DE MODELOS (Reemplaza con tus archivos reales) ---
-# Asumimos que los archivos 'modelo_anemia.joblib' y 'modelo_columns.joblib' existen.
+# --- CARGA DE MODELOS ---
+class MockModel:
+    """Clase de simulación usada si el modelo real no carga."""
+    def predict(self, X):
+        # Simulación: Predice 1 (Alto Riesgo) si Hemoglobina < 11.0 o Edad < 12 meses
+        # X[:, 0] es Hemoglobina_Corregida, X[:, 1] es Edad_Meses
+        return np.where((X[:, 0] < 11.0) | (X[:, 1] < 12), 1, 0)
+
 @st.cache_resource
 def load_assets():
+    global MODELO_REAL_CARGADO
+    
+    # 1. Intentar cargar el modelo REAL
     try:
-        # Cargar el modelo ML (simulación)
-        # Reemplaza 'modelo_anemia.joblib' con la ruta a tu modelo entrenado
-        # model = joblib.load('modelo_anemia.joblib')
+        # Reemplaza con la ruta correcta a tu modelo y a tus columnas
+        model = joblib.load('modelo_anemia.joblib')
+        feature_columns = joblib.load('modelo_columns.joblib')
         
-        # Simulación de un clasificador binario (sustituye esto)
-        class MockModel:
-            def predict(self, X):
-                # Predice 1 (Alto Riesgo) si Hemoglobina < 11.0 o Edad < 12 meses, sino 0
-                return np.where((X[:, 0] < 11.0) | (X[:, 1] < 12), 1, 0)
-
-        model = MockModel()
-
-        # Cargar las columnas usadas en el entrenamiento (simulación)
-        # Reemplaza 'modelo_columns.joblib' con la ruta a tu lista de columnas
-        # feature_columns = joblib.load('modelo_columns.joblib')
+        MODELO_REAL_CARGADO = True
+        return model, feature_columns
+        
+    except Exception as e:
+        # 3. Si falla, usar la simulación y las columnas por defecto
+        # st.error(f"Fallo al cargar modelo real (.joblib): {e}") # Se comenta para no mostrar el error interno
+        st.warning("⚠️ **USANDO PREDICCIÓN SIMULADA:** El archivo real del modelo (modelo_anemia.joblib) no se encontró o no se pudo cargar. La lógica de predicción de riesgo es CLÍNICA/MOCK.")
+        
+        # Columnas de la simulación. AJUSTA ESTO a las 4 primeras variables usadas en tu modelo
         feature_columns = ['Hemoglobina', 'Edad_Meses', 'Peso_Hogar', 'Ingreso_Familiar_Soles']
         
-        return model, feature_columns
-    except FileNotFoundError:
-        st.error("Error: Archivos del modelo (joblib) no encontrados. Asegúrate de que estén en la ruta correcta.")
-        return None, None
+        MODELO_REAL_CARGADO = False
+        return MockModel(), feature_columns
 
 model, feature_columns = load_assets()
 
@@ -63,28 +71,32 @@ model, feature_columns = load_assets()
 def clasificar_anemia(hemoglobina, edad_meses, altitud=1500):
     """Clasifica el riesgo de anemia basado en la hemoglobina corregida por altitud."""
     
-    # Factor de Corrección por Altitud (Ejemplo simplificado)
-    # A > 1000 msnm se aplica corrección. (Ej: 0.8 a 1.5 g/dL)
-    if altitud > 1000:
-        correccion = 0.8 # Valor de ejemplo
-        hemoglobina_corregida = hemoglobina + correccion
-    else:
-        hemoglobina_corregida = hemoglobina
+    # Factor de Corrección por Altitud (Según MINSA simplificado)
+    correccion = 0.0
+    if altitud > 1000 and altitud <= 2000:
+        correccion = 0.5 
+    elif altitud > 2000 and altitud <= 3000:
+        correccion = 0.8 
+    elif altitud > 3000:
+        correccion = 1.0 # Simplificación
+        
+    hemoglobina_corregida = hemoglobina + correccion
 
-    # Puntos de corte de diagnóstico (simplificado)
+    # Puntos de corte de diagnóstico (según OMS/MINSA simplificado)
+    # Niños de 6 a 59 meses
     if edad_meses >= 6 and edad_meses <= 59:
-        if hemoglobina_corregida < 11.0:
-            return "ANEMIA", hemoglobina_corregida
-        elif hemoglobina_corregida >= 11.0 and hemoglobina_corregida < 13.0:
-            return "RIESGO LEVE", hemoglobina_corregida
-        else:
-            return "NORMAL", hemoglobina_corregida
-    elif edad_meses < 6:
-        # Para menores de 6 meses, los puntos de corte son diferentes (simplificación)
-        if hemoglobina_corregida < 10.0:
+        if hemoglobina_corregida < 7.0:
             return "ANEMIA SEVERA", hemoglobina_corregida
+        elif hemoglobina_corregida >= 7.0 and hemoglobina_corregida < 11.0:
+            return "ANEMIA LEVE/MODERADA", hemoglobina_corregida
         else:
             return "NORMAL", hemoglobina_corregida
+    # Otros grupos (simplificación)
+    elif edad_meses < 6:
+        if hemoglobina_corregida < 10.0:
+            return "ANEMIA (MENOR 6 MESES)", hemoglobina_corregida
+        else:
+            return "NORMAL (MENOR 6 MESES)", hemoglobina_corregida
     
     return "NO APLICABLE", hemoglobina_corregida
 
@@ -102,11 +114,9 @@ def clasificar_clima(altitud):
 def registrar_alerta(data):
     """Guarda los datos del informe y la alerta en Supabase."""
     if supabase is None:
-        st.error("No se pudo registrar la alerta: Supabase no está inicializado.")
-        return False, "Supabase no inicializado."
+        return False, "Supabase no inicializado. Revise las credenciales."
     
     try:
-        # Los datos son un diccionario. Supabase acepta diccionarios directamente.
         data['created_at'] = datetime.now().isoformat()
         
         response = supabase.table(DATABASE_TABLE).insert(data).execute()
@@ -114,12 +124,11 @@ def registrar_alerta(data):
         if response.data:
             return True, f"Registro exitoso con ID: {response.data[0]['id']}"
         else:
-            # Manejar posibles errores devueltos por la API de Supabase
-            st.error(f"Respuesta de Supabase sin datos: {response}")
+            # st.error(f"Respuesta de Supabase sin datos: {response}")
             return False, "Error desconocido en Supabase."
 
     except Exception as e:
-        st.error(f"Error al registrar la alerta en Supabase: {e}")
+        # st.error(f"Error al registrar la alerta en Supabase: {e}")
         return False, str(e)
 
 
@@ -137,7 +146,12 @@ def app():
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Estado del Sistema**")
-    st.sidebar.success("✅ Modelo ML Cargado")
+    
+    # Mostrar el estado real del modelo
+    if MODELO_REAL_CARGADO:
+        st.sidebar.success("✅ Modelo ML Cargado (Real)")
+    else:
+        st.sidebar.error("❌ Modelo ML NO Cargado (Usando Simulación)")
     
     if supabase:
         st.sidebar.success("✅ DB Contacto (Supabase Activa)")
@@ -145,14 +159,12 @@ def app():
         st.sidebar.error("❌ DB Contacto (Supabase Inactiva)")
 
     st.sidebar.markdown("---")
-    st.sidebar.info("⚠️ Los datos NO PERSISTEN al recargar. Se usa una simulación.")
-    
-    st.sidebar.markdown("---")
     st.sidebar.subheader("Módulos de Control")
     st.sidebar.radio("Navegación", ["Predicción y Reporte", "Monitoreo de Alertas"], index=0)
 
     # Título Principal del Informe
-    st.title("Informe Personalizado y Diagnóstico de Riesgo de Anemia (v2.5 Altitud y Clima Automatizados)")
+    st.title("Informe Personalizado y Diagnóstico de Riesgo de Anemia (MIDIS v2.5)")
+    st.markdown("---")
 
     # Formulario Principal
     with st.form(key='anemia_form'):
@@ -180,7 +192,8 @@ def app():
                 max_value=20.0, 
                 value=10.50, 
                 step=0.1, 
-                format="%.2f"
+                format="%.2f",
+                help="Valor sin corrección de altitud."
             )
         
         with col_edad:
@@ -195,15 +208,18 @@ def app():
         with col_region:
             region = st.selectbox(
                 "Región (Define Altitud y Clima)", 
-                ["LIMA (Metropolitana y Provincia)", "JUNIN (Sierra Central)"],
-                index=0
+                ["LIMA (Metropolitana y Provincia)", "JUNIN (Sierra Central)", "CUSCO (Sierra Sur)"],
+                index=0,
+                help="Selecciona la región de residencia habitual."
             )
-            # Simulación de Altitud y Clima
+            # Asignación de Altitud
             altitud = 150 # Altitud de Lima (ejemplo)
             if "JUNIN" in region:
-                altitud = 3200 # Altitud de Junín (ejemplo)
+                altitud = 3200 
+            elif "CUSCO" in region:
+                altitud = 3400
 
-            st.info(f"Altitud asignada automáticamente: {altitud} msnm (Usada para corrección de Hemoglobina).")
+            st.info(f"Altitud: {altitud} msnm. Usada para corrección de Hemoglobina.")
 
         st.markdown("---")
 
@@ -224,7 +240,7 @@ def app():
             sexo = st.selectbox("Sexo", ["Femenino", "Masculino"])
             
         clima_auto = clasificar_clima(altitud)
-        st.info(f"Clima asignado automáticamente para {region}: **{clima_auto}**.")
+        st.info(f"Clima automático: **{clima_auto}**.")
         
         st.markdown("---")
 
@@ -241,35 +257,36 @@ def app():
         # Botón de Envío
         st.markdown("---")
         submit_button = st.form_submit_button(
-            label='GENERAR INFORME PERSONALIZADO, REGISTRAR CASO Y ENVIAR ALERTA',
+            label='GENERAR INFORME PERSONALIZADO Y REGISTRAR ALERTA',
             help="Alerta y registra los datos para seguimiento.",
             type="primary"
         )
 
 
     if submit_button:
-        if model is None:
-            st.error("No se puede generar el informe. El modelo ML no pudo ser cargado.")
-            return
-
         # --- 1. Lógica Clínica / Diagnóstico ---
         diagnostico_clinico, hb_corregida = clasificar_anemia(hemoglobina, edad_meses, altitud)
         
         # --- 2. Preparación de datos para ML ---
-        # Asegúrate de que el orden de las columnas coincida con el modelo (feature_columns)
+        
+        # Crear un diccionario de input, incluyendo todas las variables necesarias
         input_data = {
-            'Hemoglobina': hb_corregida,
+            'Hemoglobina': hb_corregida, # Corregida se usa para predicción
             'Edad_Meses': edad_meses,
             'Peso_Hogar': peso_hogar,
-            'Ingreso_Familiar_Soles': ingreso_familiar_soles
-            # Añade otras variables del formulario aquí si tu modelo las usa
+            'Ingreso_Familiar_Soles': ingreso_familiar_soles,
+            # NOTA: Si tu modelo real usa más variables (ej: one-hot de 'area_residencia'),
+            # DEBES incluirlas aquí antes de crear el DataFrame.
         }
         
-        # Crear DataFrame y alinear columnas
-        df_input = pd.DataFrame([input_data])
-        # Solo usar las columnas que el modelo espera
-        X_pred = df_input[feature_columns].values
-        
+        # Solo usar las columnas que el modelo espera y convertirlas a un array numpy
+        try:
+            df_input = pd.DataFrame([input_data])
+            X_pred = df_input[feature_columns].values
+        except KeyError as e:
+            st.error(f"Error en la preparación de datos: La columna {e} no está disponible en la entrada. Revisa tu lista 'feature_columns' vs. 'input_data'.")
+            return
+
         # --- 3. Predicción de Riesgo ML ---
         try:
             prediccion_ml = model.predict(X_pred)[0]
@@ -277,21 +294,27 @@ def app():
             # --- 4. Presentar Resultados ---
             st.markdown("## ✅ Resultados del Diagnóstico y Predicción de Riesgo")
             
+            col_diag, col_hb_corr = st.columns(2)
+            with col_hb_corr:
+                st.info(f"**Hemoglobina Corregida por Altitud ({altitud} msnm):** **{hb_corregida:.2f} g/dL**")
+
             # Resultado Clínico
-            if diagnostico_clinico == "ANEMIA" or diagnostico_clinico == "ANEMIA SEVERA":
-                st.error(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico} (Hemoglobina Corregida: {hb_corregida:.2f} g/dL)")
+            if "ANEMIA" in diagnostico_clinico:
+                col_diag.error(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico}")
                 alerta_status = "ALTO"
                 alerta_color = "red"
-            elif diagnostico_clinico == "RIESGO LEVE":
-                st.warning(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico} (Hemoglobina Corregida: {hb_corregida:.2f} g/dL)")
-                alerta_status = "MEDIO"
-                alerta_color = "orange"
             else:
-                st.success(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico} (Hemoglobina Corregida: {hb_corregida:.2f} g/dL)")
+                col_diag.success(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico}")
                 alerta_status = "BAJO"
                 alerta_color = "green"
             
             # Resultado ML
+            st.markdown("---")
+            st.subheader("Predicción de Riesgo ML/IA")
+            if not MODELO_REAL_CARGADO:
+                st.markdown(f"**ATENCIÓN:** Se está usando la lógica simulada para la predicción ML.")
+                st.markdown("La simulación predice **ALTO RIESGO** si la Hemoglobina < 11.0 o Edad < 12 meses.")
+            
             if prediccion_ml == 1:
                 st.error(f"**PREDICCIÓN ML:** ALTO RIESGO de desarrollar/mantener ANEMIA en los próximos meses.")
             else:
@@ -317,18 +340,21 @@ def app():
             }
 
             st.markdown("---")
-            with st.spinner("Registrando alerta en la base de datos Supabase..."):
-                registro_exitoso, mensaje = registrar_alerta(alerta_data)
-
-            if registro_exitoso:
-                st.balloons()
-                st.success(f"¡Alerta Registrada! {mensaje}. El caso de **{nombre}** ha sido notificado para seguimiento.")
-                st.json(alerta_data)
+            if supabase is None:
+                 st.info(f"Registro en DB omitido: Credenciales de Supabase no configuradas o inicialización fallida.")
             else:
-                st.error(f"Fallo en el registro de la alerta. Mensaje: {mensaje}")
+                with st.spinner("Registrando alerta en la base de datos Supabase..."):
+                    registro_exitoso, mensaje = registrar_alerta(alerta_data)
+
+                if registro_exitoso:
+                    st.balloons()
+                    st.success(f"¡Alerta Registrada! {mensaje}. El caso de **{nombre}** ha sido notificado para seguimiento.")
+                    st.json(alerta_data)
+                else:
+                    st.error(f"Fallo en el registro de la alerta. Mensaje: {mensaje}")
                 
         except Exception as e:
-            st.error(f"Ocurrió un error durante la predicción: {e}")
+            st.error(f"Ocurrió un error grave durante la predicción o post-procesamiento: {e}")
             st.code(f"Asegúrate de que tus datos de entrada coincidan con las columnas del modelo: {feature_columns}")
 
 
