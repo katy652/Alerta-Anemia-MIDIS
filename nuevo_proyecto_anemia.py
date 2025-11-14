@@ -10,6 +10,11 @@ import random
 # Importar la lógica del modelo mock, no el modelo real.
 
 # ==============================================================================
+# 0. CONFIGURACIÓN DE PÁGINA (SOLUCIÓN AL ANCHO ANGOSTO)
+# ==============================================================================
+st.set_page_config(layout="wide", page_title="Alerta Anemia MIDIS")
+
+# ==============================================================================
 # 1. CONFIGURACIÓN Y VARIABLES GLOBALES (MOCK DE BASE DE DATOS)
 # ==============================================================================
 
