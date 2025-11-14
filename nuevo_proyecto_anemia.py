@@ -1,5 +1,5 @@
 import streamlit as st
-# Necesitas instalar 'fpdf', 'unidecode', 'pandas', 'plotly', y opcionalmente 'twilio' para el envío real
+# Necesitas instalar 'fpdf', 'unidecode', 'pandas', 'plotly', y opcionalmente 'twilio'
 # pip install streamlit fpdf unidecode pandas plotly twilio
 from fpdf import FPDF
 import unidecode
@@ -18,95 +18,97 @@ except ImportError:
 
 
 # ==============================================================================
-# 0. CONFIGURACIÓN DE PÁGINA (SOLUCIÓN AL ANCHO ANGOSTO)
+# 0. CONFIGURACIÓN DE PÁGINA Y VARIABLES GLOBALES
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Alerta Anemia MIDIS")
 
-# ==============================================================================
-# 1. CONFIGURACIÓN Y VARIABLES GLOBALES (MOCK DE BASE DE DATOS)
-# ==============================================================================
+# Simulación de las variables de entorno que proveería el sistema
+# Estas variables son NECESARIAS para una conexión real a Firebase
+APP_ID = "midis-anemia-app" # Simulación de __app_id
+USER_ID = "admin-user-001" # Simulación de auth.currentUser.uid
 
-# Simulación de la carga del modelo ML (siempre cargado para funcionalidad)
 MODELO_COLUMNS = ['Hemoglobina_g_dL', 'Edad_meses', 'Altitud_m', 'Area_Rural', 'Clima_Frio', 'Clima_Templado', 'Nivel_Educacion_Madre_Sin_Nivel', 'Ingreso_Familiar_Soles', 'Nro_Hijos', 'Programa_QaliWarma_Si', 'Programa_Juntos_Si', 'Programa_VasoLeche_Si', 'Suplemento_Hierro_No']
 MODELO_ML = "Mock Model Loaded" # Simula que el modelo ha cargado correctamente
 
+
 # ------------------------------------------------------------------------------
-# MOCK DE SUPABASE: Clase que simula la interacción con la base de datos
+# FIREBASE CLIENT SIMULADO (Persistencia solo en SESIÓN)
 # ------------------------------------------------------------------------------
-class MockSupabaseClient:
-    def __init__(self):
-        # Usamos st.session_state para almacenar los registros simulados y persistirlos
-        if 'MOCK_DB_RECORDS' not in st.session_state:
-            st.session_state.MOCK_DB_RECORDS = [] 
+class FirestoreSessionClient:
+    """
+    Cliente que simula la interacción con Firebase Firestore.
+    Almacena los datos ÚNICAMENTE en la memoria de la sesión (st.session_state).
+    Para una persistencia REAL (entre recargas), se necesita una conexión real 
+    a Firebase Firestore con las credenciales adecuadas.
+    """
+    def __init__(self, app_id, user_id):
+        self.app_id = app_id
+        self.user_id = user_id
+        # La colección pública simulada de Firestore: /artifacts/{appId}/public/data/alertas_anemia
+        self.collection_path = f"/artifacts/{self.app_id}/public/data/alertas_anemia" 
+        
+        if 'FIRESTORE_RECORDS' not in st.session_state:
+            st.session_state.FIRESTORE_RECORDS = [] 
         if 'MOCK_ID_COUNTER' not in st.session_state:
             st.session_state.MOCK_ID_COUNTER = 1
         self.is_connected = True # Siempre True en la simulación
 
-    def insert(self, table_name, data):
-        # Simula la inserción en la tabla de alertas
-        if table_name == 'alertas_anemia':
-            record = data.copy()
-            record['ID_DB'] = st.session_state.MOCK_ID_COUNTER # Aseguramos que siempre se añade
-            record['Fecha Alerta'] = datetime.datetime.now().isoformat()
-            record['ID_GESTION'] = f"{st.session_state.MOCK_ID_COUNTER}_{record['Fecha Alerta']}"
-            
-            st.session_state.MOCK_DB_RECORDS.append(record)
-            st.session_state.MOCK_ID_COUNTER += 1
-            return True, record['ID_DB']
-        return False, None
+    def insert(self, data):
+        # Simula la inserción en la colección pública
+        record = data.copy()
+        record['ID_DB'] = st.session_state.MOCK_ID_COUNTER # ID numérico fácil de ver
+        record['Fecha Alerta'] = datetime.datetime.now().isoformat()
+        # ID_GESTION simula el ID del documento de Firestore
+        record['ID_GESTION'] = f"doc_{st.session_state.MOCK_ID_COUNTER}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        record['Usuario_Registro'] = self.user_id # Quién registró
+        
+        st.session_state.FIRESTORE_RECORDS.append(record)
+        st.session_state.MOCK_ID_COUNTER += 1
+        return True, record['ID_GESTION']
 
-    def select(self, table_name, filter_func=None):
-        # Simula la selección de datos
-        if table_name == 'alertas_anemia':
-            df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
-            if df.empty:
-                return pd.DataFrame()
-            if filter_func:
-                df = filter_func(df)
-            return df
-        return pd.DataFrame()
-
-    def update(self, table_name, id_gestion, nuevo_estado):
-        # Simula la actualización por la clave de gestión única
-        if table_name == 'alertas_anemia':
-            for i, record in enumerate(st.session_state.MOCK_DB_RECORDS):
-                if record.get('ID_GESTION') == id_gestion:
-                    st.session_state.MOCK_DB_RECORDS[i]['Estado'] = nuevo_estado
-                    return True
-            return False
+    def update(self, id_gestion, nuevo_estado):
+        # Simula la actualización por el ID_GESTION (ID del documento)
+        for i, record in enumerate(st.session_state.FIRESTORE_RECORDS):
+            if record.get('ID_GESTION') == id_gestion:
+                st.session_state.FIRESTORE_RECORDS[i]['Estado'] = nuevo_estado
+                return True
         return False
 
+    def get_record_count(self):
+        return len(st.session_state.FIRESTORE_RECORDS)
+
     def get_all_records(self):
-        # Obtiene todos los registros para el historial y dashboard
-        df = pd.DataFrame(st.session_state.MOCK_DB_RECORDS)
+        # Obtiene todos los registros, asegura el tipo y devuelve un DataFrame
+        df = pd.DataFrame(st.session_state.FIRESTORE_RECORDS)
         
         if df.empty:
-            return pd.DataFrame() # Devuelve un DataFrame vacío si no hay registros
+            return pd.DataFrame() 
         
         try:
-            # CORRECCIÓN: Asegurar tipos de datos solo si las columnas existen
             if 'Hb Inicial' in df.columns:
                 df['Hb Inicial'] = pd.to_numeric(df['Hb Inicial'], errors='coerce')
             if 'ID_DB' in df.columns:
-                # La columna ID_DB siempre debería existir si se usa el .insert, pero la aseguramos
                 df['ID_DB'] = pd.to_numeric(df['ID_DB'], errors='coerce', downcast='integer')
             if 'Fecha Alerta' in df.columns:
                 df['Fecha Alerta'] = pd.to_datetime(df['Fecha Alerta'], errors='coerce')
             
-            # Las columnas de texto deben ser strings
-            for col in ['Estado', 'Riesgo', 'Nombre', 'DNI']:
+            for col in ['Estado', 'Riesgo', 'Nombre', 'DNI', 'ID_GESTION']:
                 if col in df.columns:
                     df[col] = df[col].astype(str)
                     
+            # Ordenar por ID_DB (descendente)
+            if 'ID_DB' in df.columns:
+                 return df.sort_values(by='ID_DB', ascending=False)
+            
         except Exception as e:
             st.error(f"Error al procesar tipos de columna en Mock DB: {e}")
-            return pd.DataFrame() # Devuelve vacío en caso de error de procesamiento de tipos
+            return pd.DataFrame() 
             
         return df
 
 
-# Inicializar el cliente simulado de Supabase
-DB_CLIENT = MockSupabaseClient()
+# Inicializar el cliente simulado de Firestore
+DB_CLIENT = FirestoreSessionClient(app_id=APP_ID, user_id=USER_ID)
 
 # ==============================================================================
 # 2. FUNCIONES DE SOPORTE (Altitud, Clima, DB Mock)
@@ -148,7 +150,7 @@ def get_clima_por_region(region):
         return "CÁLIDO/SECO"
 
 def registrar_alerta_db(alerta_data):
-    # Prepara el objeto para inserción (simulada)
+    # Prepara el objeto para inserción (simulada en la sesión)
     data_to_insert = {
         'DNI': alerta_data['DNI'],
         'Nombre': alerta_data['Nombre_Apellido'],
@@ -160,13 +162,14 @@ def registrar_alerta_db(alerta_data):
         'Sugerencias': ' | '.join(alerta_data['sugerencias']),
     }
     
-    success, new_id = DB_CLIENT.insert('alertas_anemia', data_to_insert)
+    # 🛑 Uso del cliente simulado de Firestore
+    success, new_doc_id = DB_CLIENT.insert(data_to_insert)
     
     if success:
-        st.success(f"✅ Caso de {alerta_data['Nombre_Apellido']} registrado en la DB con ID {new_id}.")
+        st.success(f"✅ Caso de {alerta_data['Nombre_Apellido']} registrado en la DB de Sesión con ID de Documento (Mock): {new_doc_id}")
         return True
     else:
-        st.warning("⚠️ No se pudo registrar el caso en la DB.")
+        st.warning("⚠️ No se pudo registrar el caso en la DB de Sesión.")
         return False
 
 # ==============================================================================
@@ -298,7 +301,7 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 5, f"DNI del Paciente: {data['DNI']}", 0, 1)
     pdf.cell(0, 5, f"Nombre: {data['Nombre_Apellido']}", 0, 1)
-    pdf.cell(0, 5, f"Celular: {data['Celular']}", 0, 1) # Añadido el celular al PDF
+    pdf.cell(0, 5, f"Celular: {data['Celular']}", 0, 1) 
     pdf.cell(0, 5, f"Fecha de Analisis: {datetime.date.today().isoformat()}", 0, 1)
     pdf.ln(5)
 
@@ -340,17 +343,14 @@ def generar_informe_pdf_fpdf(data, resultado_final, prob_riesgo, sugerencias, gr
 
 def enviar_alerta_sms_twilio(celular, nombre, dni, riesgo, gravedad):
     """
-    Función que gestiona el envío de una alerta por SMS.
-    Si se configuran las credenciales de Twilio, el envío será REAL.
-    De lo contrario, realiza una simulación.
+    Función que gestiona el envío de una alerta por SMS (Simulada o Real).
     """
-    # 🛑 INSTRUCCIONES: REEMPLAZA ESTAS VARIABLES CON TUS CLAVES REALES DE TWILIO
-    # Si las dejas con los valores 'ACxxx', se ejecutará la SIMULACIÓN.
+    # 🛑 INSTRUCCIONES: Reemplace estas variables con sus claves reales de Twilio.
+    # Si las deja con los valores 'ACxxx', se ejecutará la SIMULACIÓN.
     ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     AUTH_TOKEN = "your_auth_token"
     TWILIO_NUMBER = "+15017122661"  # Tu número Twilio asignado
 
-    # CORRECCIÓN: Usar 'dni' directamente en lugar de session_state
     mensaje = f"ALERTA MIDIS: Caso {nombre} (DNI {dni}) clasificado como {riesgo} y Gravedad {gravedad}. REQUIERE ACCIÓN URGENTE. Reporte en PDF adjunto."
     
     # -------------------------------------------------------------------------
@@ -365,7 +365,7 @@ def enviar_alerta_sms_twilio(celular, nombre, dni, riesgo, gravedad):
         return True
     
     # -------------------------------------------------------------------------
-    # LÓGICA DE ENVÍO REAL (solo si las credenciales son válidas y Twilio está disponible)
+    # LÓGICA DE ENVÍO REAL 
     # -------------------------------------------------------------------------
     else:
         try:
@@ -378,7 +378,7 @@ def enviar_alerta_sms_twilio(celular, nombre, dni, riesgo, gravedad):
             st.success(f"✅ Alerta SMS **REAL** enviada con éxito a {celular}.")
             return True
         except Exception as e:
-            st.error(f"❌ ERROR: No se pudo enviar el SMS real. Revise sus credenciales de Twilio, el formato del número (debe incluir código de país, ej. +519XXXXXXXX), y que el número de Twilio esté configurado. Detalle: {e}")
+            st.error(f"❌ ERROR: No se pudo enviar el SMS real. Detalle: {e}")
             return False
 
 
@@ -489,7 +489,7 @@ def vista_prediccion():
             # Pasamos la Region para que se guarde en la DB
             alerta_data = {'DNI': dni, 'Nombre_Apellido': nombre, 'Hemoglobina_g_dL': hemoglobina, 'Edad_meses': edad_meses, 'riesgo': resultado_final, 'gravedad_anemia': gravedad_anemia, 'sugerencias': sugerencias_finales, 'Region': region}
 
-            # Intenta registrar en DB (Mock persistente)
+            # Intenta registrar en DB (Mock persistente de SESIÓN)
             registrar_alerta_db(alerta_data)
             
             # Intenta enviar alerta por celular
@@ -554,37 +554,28 @@ def obtener_alertas_pendientes_o_seguimiento():
     df_filtered = df[~df['Estado'].isin(['RESUELTO', 'CERRADO (NO APLICA)'])].copy()
         
     if not df_filtered.empty:
-        # CORRECCIÓN: Usar 'ID_DB' si existe, si no, usa el índice (menos ideal pero previene crash)
+        # CORRECCIÓN: Usar 'ID_DB' si existe
         sort_col = 'ID_DB' if 'ID_DB' in df_filtered.columns else df_filtered.index.name if df_filtered.index.name else df_filtered.columns[0]
         # Aseguramos que 'ID_DB' es la clave de ordenamiento
         try:
             return df_filtered.sort_values(by='ID_DB', ascending=True).reset_index(drop=True)
         except KeyError:
-            # Fallback si por alguna razón la columna no está.
             st.error("Error de datos: No se encontró la columna 'ID_DB' para ordenar alertas activas.")
             return df_filtered.reset_index(drop=True)
     return pd.DataFrame()
 
 def actualizar_estado_alerta(id_gestion, nuevo_estado):
-    # Simula la actualización
-    return DB_CLIENT.update('alertas_anemia', id_gestion, nuevo_estado)
+    # Simula la actualización en el cliente de sesión (que se comporta como Firestore)
+    return DB_CLIENT.update(id_gestion, nuevo_estado)
 
 def obtener_todos_los_registros():
-    df = DB_CLIENT.get_all_records()
-    
-    if df.empty:
-        return pd.DataFrame()
-        
-    # CORRECCIÓN: Manejar el KeyError
-    try:
-        return df.sort_values(by='ID_DB', ascending=False)
-    except KeyError:
-        st.error("Error de datos en Historial: La columna 'ID_DB' no está disponible para ordenar. Mostrando sin ordenar.")
-        return df # Retornar sin ordenar si la columna falta
+    # Retorna los registros ordenados descendentemente por ID_DB (más nuevos primero)
+    return DB_CLIENT.get_all_records()
 
 def vista_monitoreo():
     st.title("📊 Monitoreo y Gestión de Alertas")
-    st.caption("Los datos se guardan de forma persistente durante tu sesión.")
+    st.caption(f"📍 **Colección Firestore Simulada:** `{DB_CLIENT.collection_path}`")
+    st.info("🚨 **ATENCIÓN:** Los datos se guardan solo **durante su sesión** (persistencia de memoria). Para guardado PERMANENTE, migrar a React/Angular con Firebase Firestore real.")
     st.markdown("---")
     st.header("1. Casos de Monitoreo Activo (Pendientes y En Seguimiento)")
     
@@ -601,33 +592,29 @@ def vista_monitoreo():
         opciones_estado = ["PENDIENTE (CLÍNICO URGENTE)", "PENDIENTE (IA/VULNERABILIDAD)", "EN SEGUIMIENTO", "RESUELTO", "CERRADO (NO APLICA)", "REGISTRADO"]
         
         # Columnas a mostrar en el editor
-        cols_to_display = ['ID_DB', 'DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION']
+        cols_to_display = ['ID_DB', 'DNI', 'Nombre', 'Hb Inicial', 'Riesgo', 'Fecha Alerta', 'Estado', 'Sugerencias', 'ID_GESTION', 'Usuario_Registro']
         cols_to_display = [col for col in cols_to_display if col in df_monitoreo.columns]
         
         df_display = df_monitoreo[cols_to_display].copy()
         
-        # CORRECCIÓN: Asegurar tipos de columna para evitar errores de Streamlit
-        # Esto es un problema conocido con st.data_editor y DataFrames inestables
-        if 'Hb Inicial' in df_display.columns:
-            df_display['Hb Inicial'] = pd.to_numeric(df_display['Hb Inicial'], errors='coerce')
-        if 'Fecha Alerta' in df_display.columns and not pd.api.types.is_datetime64_any_dtype(df_display['Fecha Alerta']):
-             df_display['Fecha Alerta'] = pd.to_datetime(df_display['Fecha Alerta'], errors='coerce')
+        # Ocultar ID_GESTION y Usuario_Registro
+        column_config = {
+            "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True),
+            "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
+            "ID_GESTION": None, 
+            "Usuario_Registro": None,
+            "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True),
+            "Fecha Alerta": st.column_config.DatetimeColumn("Fecha Alerta", format="YYYY-MM-DD HH:mm:ss", disabled=True),
+            "Hb Inicial": st.column_config.NumberColumn("Hb Inicial (g/dL)", format="%.1f", disabled=True),
+            "DNI": st.column_config.TextColumn("DNI", disabled=True),
+            "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
+            "Riesgo": st.column_config.TextColumn("Riesgo", disabled=True),
+        }
         
-        # El data_editor puede causar problemas si los tipos son inconsistentes
         try:
             edited_df = st.data_editor(
                 df_display,
-                column_config={
-                    "Estado": st.column_config.SelectboxColumn("Estado de Gestión", options=opciones_estado, required=True),
-                    "Sugerencias": st.column_config.TextColumn("Sugerencias", width="large"),
-                    "ID_GESTION": None, # Ocultar la clave compuesta
-                    "ID_DB": st.column_config.NumberColumn("ID de Registro", disabled=True),
-                    "Fecha Alerta": st.column_config.DatetimeColumn("Fecha Alerta", format="YYYY-MM-DD HH:mm:ss", disabled=True),
-                    "Hb Inicial": st.column_config.NumberColumn("Hb Inicial (g/dL)", format="%.1f", disabled=True),
-                    "DNI": st.column_config.TextColumn("DNI", disabled=True),
-                    "Nombre": st.column_config.TextColumn("Nombre", disabled=True),
-                    "Riesgo": st.column_config.TextColumn("Riesgo", disabled=True),
-                },
+                column_config=column_config,
                 hide_index=True,
                 key="monitoreo_data_editor"
             )
@@ -635,26 +622,28 @@ def vista_monitoreo():
             # Lógica de guardado
             changes_detected = False
             if not df_monitoreo.empty:
-                for index, row in edited_df.iterrows():
-                    # Usar el índice del df_monitoreo original para mapear correctamente
-                    original_row = df_monitoreo.loc[index]
+                # Iterar sobre las filas editadas
+                for index, edited_row in edited_df.iterrows():
+                    # Usar el ID_GESTION de la fila editada (que no se modifica en el editor)
+                    id_gestion = edited_row['ID_GESTION'] 
                     
-                    if row['Estado'] != original_row['Estado']:
-                        # Usamos ID_GESTION para asegurar la unicidad en el mock
-                        success = actualizar_estado_alerta(original_row['ID_GESTION'], row['Estado'])
+                    # Buscar la fila original usando el ID_GESTION
+                    original_row = df_monitoreo[df_monitoreo['ID_GESTION'] == id_gestion].iloc[0]
+
+                    if edited_row['Estado'] != original_row['Estado']:
+                        success = actualizar_estado_alerta(id_gestion, edited_row['Estado'])
                         if success:
-                            st.toast(f"✅ Estado de DNI {row['DNI']} actualizado a '{row['Estado']}'", icon='✅')
+                            st.toast(f"✅ Estado de DNI {edited_row['DNI']} actualizado a '{edited_row['Estado']}'", icon='✅')
                             changes_detected = True
                         else:
-                            st.toast(f"❌ Error al actualizar estado para DNI {row['DNI']}", icon='❌')
+                            st.toast(f"❌ Error al actualizar estado para DNI {edited_row['DNI']}", icon='❌')
                             
             if changes_detected:
                 # Recargar datos después de la actualización exitosa
                 st.rerun()
                 
         except Exception as e:
-            # Capturar errores que puedan surgir del data_editor, como el StreamlitAPIException
-            st.error(f"Error en el editor de datos (st.data_editor). Esto suele ser un problema de tipo de datos o consistencia. Detalle: {e}")
+            st.error(f"Error en el editor de datos (st.data_editor). Detalle: {e}")
             st.dataframe(df_display) # Mostrar el DataFrame crudo para debug.
 
 
@@ -676,7 +665,7 @@ def vista_monitoreo():
 
 def vista_dashboard():
     st.title("📊 Panel Estadístico de Alertas")
-    st.caption("Muestra datos persistentes guardados durante tu sesión.")
+    st.caption(f"Datos de la Colección Simulada: `{DB_CLIENT.collection_path}`")
     st.markdown("---")
     
     if not DB_CLIENT.is_connected:
@@ -803,19 +792,26 @@ def main():
         st.markdown("---")
         # Mostrar el estado del modelo y Supabase en la barra lateral
         st.markdown("### Estado del Sistema")
-        # Ahora siempre está "cargado" porque estamos usando la lógica simulada
         if MODELO_ML: st.success("✅ Modelo ML Cargado (Lógica Simulada Activa)")
         else: st.error("❌ Modelo ML Falló")
-        # La conexión a Supabase es simulada, pero usamos la persistencia de sesión
-        if DB_CLIENT.is_connected: st.success("✅ DB Conectada (Persistencia en Sesión)")
+        
+        # Conexión a DB (simulada)
+        if DB_CLIENT.is_connected: 
+            st.success("✅ DB Conectada (Mock de Firestore)")
+            st.warning("⚠️ Los datos **NO PERSISTEN** si recarga la página. Lea la nota importante.")
         else: st.error("❌ DB Desconectada")
         
+        # Muestra el contador de registros
+        num_registros = DB_CLIENT.get_record_count()
+        st.info(f"💾 Alertas en Sesión: **{num_registros}**")
+
+        st.markdown("---")
         # Muestra la advertencia si Twilio no está disponible (para el envío real)
         st.markdown("### Estado de SMS")
         if not TWILIO_CLIENT_AVAILABLE:
             st.warning("⚠️ Módulo Twilio NO detectado. SMS solo en MODO SIMULACIÓN.")
         else:
-             st.info("✅ Módulo Twilio detectado. Si las credenciales son válidas, enviará SMS REALES.")
+             st.info("✅ Módulo Twilio detectado.")
         
     if seleccion == "Predicción y Reporte":
         vista_prediccion()
