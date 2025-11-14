@@ -7,8 +7,9 @@ import os
 from supabase import create_client, Client
 from datetime import datetime
 
-# --- CONFIGURACIÓN DE SUPABASE (Necesitas tus propias credenciales) ---
-# Se recomienda usar los secretos de Streamlit para producción.
+# --- CONFIGURACIÓN DE SUPABASE ---
+# Se recomienda usar los secretos de Streamlit (st.secrets) para las credenciales.
+# Reemplaza los placeholders si no usas st.secrets
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "TU_URL_SUPABASE_NO_CONFIGURADA")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "TU_KEY_SUPABASE_NO_CONFIGURADA")
 DATABASE_TABLE = "AlertasAnemia" # Asegúrate de que esta sea tu tabla en Supabase
@@ -27,12 +28,11 @@ def init_supabase_client():
             st.error(f"Error al inicializar Supabase: {e}")
             return None
     else:
-        # st.warning("Credenciales de Supabase no configuradas. El registro de alertas estará desactivado.")
         return None
 
 supabase: Client = init_supabase_client()
 
-# --- CARGA DE MODELOS ---
+# --- CARGA DE MODELOS Y SIMULACIÓN ---
 class MockModel:
     """Clase de simulación usada si el modelo real no carga."""
     def predict(self, X):
@@ -46,7 +46,7 @@ def load_assets():
     
     # 1. Intentar cargar el modelo REAL
     try:
-        # Reemplaza con la ruta correcta a tu modelo y a tus columnas
+        # Asegúrate de que estos archivos estén en el mismo directorio
         model = joblib.load('modelo_anemia.joblib')
         feature_columns = joblib.load('modelo_columns.joblib')
         
@@ -55,10 +55,9 @@ def load_assets():
         
     except Exception as e:
         # 3. Si falla, usar la simulación y las columnas por defecto
-        # st.error(f"Fallo al cargar modelo real (.joblib): {e}") # Se comenta para no mostrar el error interno
-        st.warning("⚠️ **USANDO PREDICCIÓN SIMULADA:** El archivo real del modelo (modelo_anemia.joblib) no se encontró o no se pudo cargar. La lógica de predicción de riesgo es CLÍNICA/MOCK.")
+        st.warning("⚠️ **USANDO PREDICCIÓN SIMULADA:** El modelo real no se encontró o no se pudo cargar. La lógica de riesgo es CLÍNICA/MOCK.")
         
-        # Columnas de la simulación. AJUSTA ESTO a las 4 primeras variables usadas en tu modelo
+        # Columnas de la simulación. AJUSTA ESTO a las variables primarias de tu modelo
         feature_columns = ['Hemoglobina', 'Edad_Meses', 'Peso_Hogar', 'Ingreso_Familiar_Soles']
         
         MODELO_REAL_CARGADO = False
@@ -118,17 +117,14 @@ def registrar_alerta(data):
     
     try:
         data['created_at'] = datetime.now().isoformat()
-        
         response = supabase.table(DATABASE_TABLE).insert(data).execute()
         
         if response.data:
             return True, f"Registro exitoso con ID: {response.data[0]['id']}"
         else:
-            # st.error(f"Respuesta de Supabase sin datos: {response}")
             return False, "Error desconocido en Supabase."
 
     except Exception as e:
-        # st.error(f"Error al registrar la alerta en Supabase: {e}")
         return False, str(e)
 
 
@@ -271,12 +267,13 @@ def app():
         
         # Crear un diccionario de input, incluyendo todas las variables necesarias
         input_data = {
-            'Hemoglobina': hb_corregida, # Corregida se usa para predicción
+            # Se usa Hemoglobina Corregida para la predicción
+            'Hemoglobina': hb_corregida, 
             'Edad_Meses': edad_meses,
             'Peso_Hogar': peso_hogar,
             'Ingreso_Familiar_Soles': ingreso_familiar_soles,
-            # NOTA: Si tu modelo real usa más variables (ej: one-hot de 'area_residencia'),
-            # DEBES incluirlas aquí antes de crear el DataFrame.
+            # NOTA: AÑADE AQUÍ CUALQUIER OTRA VARIABLE QUE TU MODELO REAL NECESITE 
+            # (ej: variables codificadas de área de residencia, sexo, programas)
         }
         
         # Solo usar las columnas que el modelo espera y convertirlas a un array numpy
@@ -284,7 +281,7 @@ def app():
             df_input = pd.DataFrame([input_data])
             X_pred = df_input[feature_columns].values
         except KeyError as e:
-            st.error(f"Error en la preparación de datos: La columna {e} no está disponible en la entrada. Revisa tu lista 'feature_columns' vs. 'input_data'.")
+            st.error(f"Error en la preparación de datos: La columna {e} no está disponible. Revisa tu lista 'feature_columns'.")
             return
 
         # --- 3. Predicción de Riesgo ML ---
@@ -302,17 +299,16 @@ def app():
             if "ANEMIA" in diagnostico_clinico:
                 col_diag.error(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico}")
                 alerta_status = "ALTO"
-                alerta_color = "red"
             else:
                 col_diag.success(f"**DIAGNÓSTICO CLÍNICO:** {diagnostico_clinico}")
                 alerta_status = "BAJO"
-                alerta_color = "green"
             
             # Resultado ML
             st.markdown("---")
             st.subheader("Predicción de Riesgo ML/IA")
+            
             if not MODELO_REAL_CARGADO:
-                st.markdown(f"**ATENCIÓN:** Se está usando la lógica simulada para la predicción ML.")
+                st.markdown(f"**ATENCIÓN:** Se está usando la lógica simulada.")
                 st.markdown("La simulación predice **ALTO RIESGO** si la Hemoglobina < 11.0 o Edad < 12 meses.")
             
             if prediccion_ml == 1:
@@ -341,21 +337,21 @@ def app():
 
             st.markdown("---")
             if supabase is None:
-                 st.info(f"Registro en DB omitido: Credenciales de Supabase no configuradas o inicialización fallida.")
+                 st.info(f"Registro en DB omitido: Supabase no está configurado.")
             else:
                 with st.spinner("Registrando alerta en la base de datos Supabase..."):
                     registro_exitoso, mensaje = registrar_alerta(alerta_data)
 
                 if registro_exitoso:
                     st.balloons()
-                    st.success(f"¡Alerta Registrada! {mensaje}. El caso de **{nombre}** ha sido notificado para seguimiento.")
+                    st.success(f"¡Alerta Registrada! {mensaje}.")
                     st.json(alerta_data)
                 else:
                     st.error(f"Fallo en el registro de la alerta. Mensaje: {mensaje}")
                 
         except Exception as e:
             st.error(f"Ocurrió un error grave durante la predicción o post-procesamiento: {e}")
-            st.code(f"Asegúrate de que tus datos de entrada coincidan con las columnas del modelo: {feature_columns}")
+            st.code(f"Verifique la estructura de su modelo. Columnas esperadas: {feature_columns}")
 
 
 if __name__ == "__main__":
